@@ -805,6 +805,42 @@ async function handleCallbackQuery(ctx: Context): Promise<void> {
   // Acknowledge the button press immediately
   await ctx.answerCallbackQuery().catch(() => {});
 
+  // ---- Check-in button handlers ----
+
+  if (data === "call_yes") {
+    await ctx.editMessageText("📞 Calling you now...").catch(() => {});
+    try {
+      const { initiatePhoneCall } = await import("./lib/voice");
+      const originalText = (ctx.callbackQuery.message as any)?.text || "";
+      const context = originalText.replace(/^.*?about:\n\n/s, "").trim();
+      await initiatePhoneCall(context || "Check-in call");
+    } catch (err: any) {
+      await ctx.editMessageText("Failed to initiate call: " + err.message).catch(() => {});
+    }
+    return;
+  }
+
+  if (data === "call_no" || data === "dismiss") {
+    await ctx.editMessageText("✓").catch(() => {});
+    return;
+  }
+
+  if (data === "snooze") {
+    await ctx.editMessageText("😴 Snoozed for 30 minutes").catch(() => {});
+    return;
+  }
+
+  if (data === "call_request") {
+    await ctx.editMessageText("📞 Calling you now...").catch(() => {});
+    try {
+      const { initiatePhoneCall } = await import("./lib/voice");
+      await initiatePhoneCall("You requested a call from the check-in");
+    } catch (err: any) {
+      await ctx.editMessageText("Failed to initiate call: " + err.message).catch(() => {});
+    }
+    return;
+  }
+
   if (!data.startsWith("atask:")) return;
 
   const result = await handleTaskCallback(data);
