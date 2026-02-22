@@ -48,6 +48,8 @@ import {
   stripAssetDescTag,
 } from "./lib/asset-store";
 import * as supabase from "./lib/supabase";
+import { BotRegistry } from "./lib/bot-registry";
+import { getAgentByTopicId } from "./agents";
 
 // ============================================================
 // LOAD ENVIRONMENT
@@ -93,6 +95,10 @@ const bot = new Bot(BOT_TOKEN);
 // Initialize bot (required for webhook mode — bot.start() does this for polling)
 await bot.init();
 console.log(`Bot initialized: @${bot.botInfo.username}`);
+
+// Multi-bot registry (agent-specific bots for visible identities)
+const botRegistry = new BotRegistry(bot);
+await botRegistry.initialize();
 
 // Global error handler — prevents Grammy from dumping full Context objects
 bot.catch((err) => {
@@ -653,6 +659,9 @@ bot.on("message:text", async (ctx) => {
   }
 
   if (response) {
+    // Determine agent from topic (if forum mode)
+    const agentName = threadId ? getAgentByTopicId(threadId) || "general" : "general";
+
     await supabase
       .saveMessage({
         chat_id: chatId,
@@ -662,12 +671,14 @@ bot.on("message:text", async (ctx) => {
           telegram_chat_id: ctx.chat.id,
           thread_id: threadId,
           processed_by: processedBy,
+          agent: agentName,
         },
       })
       .catch(() => {});
-  }
 
-  await sendResponse(ctx, response);
+    // Route response through agent's bot (falls back to primary if no agent token)
+    await botRegistry.sendAsAgent(agentName, chatId, response, { threadId });
+  }
 });
 
 // ============================================================
@@ -1048,7 +1059,43 @@ bot.on("callback_query:data", async (ctx) => {
       return;
     }
 
-    // Fallback: no snapshot, start fresh with context
+    // Mac-originated task or no snapshot: forward to Mac if alive
+    if (isMacAlive() && MAC_PROCESS_URL) {
+      const macResumeUrl = MAC_PROCESS_URL.replace("/process", "/resume");
+      console.log(`[HYBRID] Forwarding HITL callback to Mac: task=${result.taskId}`);
+      await ctx
+        .editMessageText(`Got it: "${result.choice}". Resuming...`)
+        .catch(() => {});
+
+      try {
+        const res = await fetch(macResumeUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${GATEWAY_SECRET}`,
+          },
+          body: JSON.stringify({
+            taskId: result.taskId,
+            choice: result.choice,
+            sessionId: result.task?.session_id || null,
+            originalPrompt: result.task?.original_prompt || "",
+            pendingQuestion: result.task?.pending_question || null,
+            chatId,
+            threadId: result.task?.metadata?.topicId,
+          }),
+        });
+
+        if (res.ok) {
+          console.log(`[HYBRID] Mac accepted HITL resume for task=${result.taskId}`);
+          return;
+        }
+        console.warn(`[HYBRID] Mac /resume returned ${res.status}, falling back to VPS`);
+      } catch (err: any) {
+        console.warn(`[HYBRID] Mac /resume failed: ${err.message}, falling back to VPS`);
+      }
+    }
+
+    // Fallback: no snapshot, start fresh with context on VPS
     await ctx
       .editMessageText(`Got it: "${result.choice}". Resuming...`)
       .catch(() => {});
@@ -1060,11 +1107,6 @@ bot.on("callback_query:data", async (ctx) => {
     );
     await sendResponse(ctx, response);
     return;
-  }
-
-  // Forward other callbacks to local if alive
-  if (isMacAlive()) {
-    // TODO: Forward callback to local machine's /callback endpoint
   }
 });
 
