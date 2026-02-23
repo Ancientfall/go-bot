@@ -1,5 +1,46 @@
 # Gobot Changelog
 
+## v2.6.0 — 2026-02-23
+
+**Multi-Bot Agent Identities + Cross-Agent Consultation + Board Meetings**
+
+Each agent can now have its own Telegram bot, so messages appear from separate identities (Research Bot, Finance Bot, etc.) instead of all coming from the main bot. Agents can consult each other mid-conversation, and the new `/board` command triggers a full multi-agent discussion on any topic.
+
+### New Features
+
+- **Multi-bot agent identities** — Create separate Telegram bots for Research, Content, Finance, Strategy, and Critic agents. Each agent sends messages from its own bot account. Falls back to main bot for any unconfigured agent.
+- **Cross-agent consultation** — Agents can invoke each other mid-conversation using `[INVOKE:agent|question]` tags. Visible inter-agent communication with responses shown in the chat.
+- **Board meetings (`/board`)** — Triggers a sequential multi-agent discussion. All configured agents weigh in on a topic, then a synthesis is generated. Example: `/board Should we launch a paid newsletter?`
+- **Knowledge base framework** (WIP) — Embedding-based knowledge retrieval via Supabase edge function. Foundation for future RAG capabilities.
+
+### Setup Flow
+
+- **CLAUDE.md Phase 4** now includes full multi-bot setup instructions: BotFather walkthrough, env var names, cross-agent explanation, `/board` usage
+- **`bun run setup:verify`** now checks agent bot tokens (new section `[5/6] Multi-Bot Agent Identities`) — validates each token against Telegram API, reports graceful fallback for missing ones
+
+### New Files
+- `src/lib/bot-registry.ts` — `BotRegistry` class mapping agent names to individual Grammy Bot instances (outbound-only, no polling)
+- `src/lib/cross-agent.ts` — `[INVOKE:agent|question]` parser and executor
+- `src/lib/knowledge-base.ts` — Embedding framework (WIP)
+- `supabase/functions/embed-knowledge/index.ts` — Edge function for embeddings
+
+### Updated Files
+- `src/bot.ts` — Board meeting mode, cross-agent invocation, BotRegistry integration
+- `src/vps-gateway.ts` — VPS-native board meeting support
+- `src/lib/supabase.ts` — `getBoardMeetingContext()` function
+- `src/lib/agent-session.ts` — Skip progress on HITL resume
+- `src/agents/general.ts`, `content.ts`, `finance.ts`, `research.ts`, `strategy.ts` — Cross-agent consultation instructions in system prompts
+- `.env.example` — Documents `TELEGRAM_BOT_TOKEN_RESEARCH/CONTENT/FINANCE/STRATEGY/CRITIC`
+- `CLAUDE.md` — Phase 4 multi-bot setup, cross-agent docs, `/board` usage
+- `setup/verify.ts` — Agent bot token validation (section 5/6)
+
+### Compatibility
+- Fully backward compatible. All features are optional.
+- Without agent bot tokens: everything works exactly as before, all agents use the main bot.
+- Add 1, 3, or all 5 agent tokens — missing ones fall back to the main bot.
+
+---
+
 ## v2.5.3 — 2026-02-19
 
 **ZIP-to-Git Upgrade + Setup Detection**
