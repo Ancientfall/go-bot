@@ -15,6 +15,8 @@ const AGENT_TOKEN_MAP: Record<string, string> = {
   finance: "TELEGRAM_BOT_TOKEN_FINANCE",
   strategy: "TELEGRAM_BOT_TOKEN_STRATEGY",
   critic: "TELEGRAM_BOT_TOKEN_CRITIC",
+  cto: "TELEGRAM_BOT_TOKEN_CTO",
+  coo: "TELEGRAM_BOT_TOKEN_COO",
 };
 
 /** Alias resolution: alternative names → canonical agent name */
@@ -24,6 +26,10 @@ const AGENT_ALIASES: Record<string, string> = {
   cmo: "content",
   researcher: "research",
   "devils-advocate": "critic",
+  dev: "cto",
+  development: "cto",
+  ops: "coo",
+  operations: "coo",
 };
 
 export class BotRegistry {

@@ -78,6 +78,7 @@ import {
   formatCrossAgentContext,
   getUserProfile,
 } from "./agents";
+import { gatherBoardData } from "./lib/board-data";
 
 // ---------------------------------------------------------------------------
 // 1. Load Environment
@@ -1388,7 +1389,7 @@ async function runBoardMeeting(
   topicId?: number,
   extraContext?: string
 ): Promise<void> {
-  const boardAgents = ["research", "content", "finance", "strategy", "critic"];
+  const boardAgents = ["research", "content", "finance", "strategy", "cto", "coo", "critic"];
   const contextNote = extraContext ? `\n\nAdditional context: ${extraContext}` : "";
 
   // Orchestrator announces
@@ -1398,6 +1399,10 @@ async function runBoardMeeting(
     `*Board Meeting Starting*\n\nGathering perspectives from all agents...${contextNote}`,
     { threadId: topicId }
   );
+
+  // Gather live data in parallel with announcement
+  const boardData = await gatherBoardData();
+  console.log(`[BoardMeeting] Data gathered in ${boardData.fetchDurationMs}ms (errors: ${boardData.errors.join(", ") || "none"})`);
 
   const agentResponses: { agent: string; response: string }[] = [];
 
@@ -1411,11 +1416,14 @@ async function runBoardMeeting(
       .map((r) => `**${r.agent}**: ${r.response.substring(0, 300)}`)
       .join("\n\n");
 
+    const dataBlock = boardData.agentData[agent] || "";
     const boardPrompt = `You are participating in a board meeting. Review recent activity and provide your specialized perspective.${contextNote}
+
+${dataBlock}
 
 ${previousInput ? `## PREVIOUS AGENT INPUTS\n${previousInput}` : ""}
 
-Provide a concise analysis from your domain. Focus on what matters most from your perspective. Keep it to 2-4 key points.`;
+Reference specific numbers and data from your LIVE DATA section above. Provide a concise analysis from your domain. Focus on what matters most from your perspective. Keep it to 2-4 key points.`;
 
     try {
       const response = await callClaude(boardPrompt, chatId, agent, topicId);
@@ -1440,7 +1448,8 @@ Provide a concise analysis from your domain. Focus on what matters most from you
 
 ${agentResponses.map((r) => `**${r.agent.toUpperCase()}**:\n${r.response}`).join("\n\n---\n\n")}
 
-Synthesize the key themes, identify conflicts or alignments between agents, and propose 3-5 concrete action items with clear ownership.`;
+${boardData.sharedSummary ? `## CURRENT METRICS SNAPSHOT\n${boardData.sharedSummary}\n` : ""}
+Synthesize the key themes, identify conflicts or alignments between agents, and propose 3-5 concrete action items with clear ownership. Ground your action items in the specific numbers above.`;
 
   const synthesis = await callClaude(synthesisPrompt, chatId, "general", topicId);
   await botRegistry.sendAsAgent("general", chatId, synthesis, { threadId: topicId });

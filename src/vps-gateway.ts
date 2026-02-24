@@ -50,6 +50,7 @@ import {
 import * as supabase from "./lib/supabase";
 import { BotRegistry } from "./lib/bot-registry";
 import { getAgentByTopicId, getAgentConfig } from "./agents";
+import { gatherBoardData } from "./lib/board-data";
 import { stripInvocationTags } from "./lib/cross-agent";
 
 // ============================================================
@@ -650,8 +651,13 @@ bot.on("message:text", async (ctx) => {
       { threadId }
     );
 
-    const boardContext = await supabase.getBoardMeetingContext(7);
-    const boardAgents = ["research", "content", "finance", "strategy", "critic"];
+    const [boardContext, boardData] = await Promise.all([
+      supabase.getBoardMeetingContext(7),
+      gatherBoardData(),
+    ]);
+    console.log(`[BoardMeeting] Data gathered in ${boardData.fetchDurationMs}ms (errors: ${boardData.errors.join(", ") || "none"})`);
+
+    const boardAgents = ["research", "content", "finance", "strategy", "cto", "coo", "critic"];
     const agentResponses: { agent: string; response: string }[] = [];
 
     for (const agent of boardAgents) {
@@ -662,13 +668,16 @@ bot.on("message:text", async (ctx) => {
         .join("\n\n");
 
       const agentConfig = getAgentConfig(agent);
+      const dataBlock = boardData.agentData[agent] || "";
       const boardPrompt = `${agentConfig?.systemPrompt || ""}
+
+${dataBlock}
 
 ${boardContext}
 
 ${previousInput ? `## PREVIOUS AGENT INPUTS\n${previousInput}` : ""}
 
-You are participating in a board meeting. Provide a concise analysis from your domain. Focus on what matters most from your perspective. Keep it to 2-4 key points.${extraContext ? `\n\nAdditional context: ${extraContext}` : ""}`;
+You are participating in a board meeting. Reference specific numbers and data from your LIVE DATA section above. Provide a concise analysis from your domain. Focus on what matters most from your perspective. Keep it to 2-4 key points.${extraContext ? `\n\nAdditional context: ${extraContext}` : ""}`;
 
       try {
         const response = await processWithAnthropic(boardPrompt, chatId, ctx);
@@ -688,7 +697,8 @@ You are participating in a board meeting. Provide a concise analysis from your d
 
 ${agentResponses.map((r) => `**${r.agent.toUpperCase()}**:\n${r.response}`).join("\n\n---\n\n")}
 
-Synthesize key themes, identify conflicts or alignments, and propose 3-5 concrete action items with clear ownership.`;
+${boardData.sharedSummary ? `## CURRENT METRICS SNAPSHOT\n${boardData.sharedSummary}\n` : ""}
+Synthesize key themes, identify conflicts or alignments, and propose 3-5 concrete action items with clear ownership. Ground your action items in the specific numbers above.`;
 
     const synthesis = await processWithAnthropic(synthesisPrompt, chatId, ctx);
     await botRegistry.sendAsAgent("general", chatId, synthesis, { threadId });
