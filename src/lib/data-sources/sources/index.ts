@@ -7,6 +7,7 @@
 
 import "./goals";
 import "./grok-news";
+import "./gemini-news";
 import "./gmail";
 import "./calendar";
 import "./notion-tasks";
