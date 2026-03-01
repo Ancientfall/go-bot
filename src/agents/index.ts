@@ -29,28 +29,23 @@ export {
 } from "./base";
 
 // Agent configurations
-export { default as researchAgent } from "./research";
-export { default as contentAgent } from "./content";
-export { default as financeAgent } from "./finance";
-export { default as strategyAgent } from "./strategy";
 export { default as generalAgent } from "./general";
 export { default as criticAgent } from "./critic";
-export { default as ctoAgent } from "./cto";
-export { default as cooAgent } from "./coo";
+export { default as softwareAgent } from "./software";
+export { default as databaseAgent } from "./database";
+export { default as bpDocsAgent } from "./bp-docs";
+export { default as bpContractsAgent } from "./bp-contracts";
+export { default as bpInvoicesAgent } from "./bp-invoices";
+export { default as bpFinanceAgent } from "./bp-finance";
 
 // Quick reference
 export const AGENTS = {
-  research:
-    "Research Agent - Market intel, competitor analysis (ReAct reasoning)",
-  content:
-    "Content Agent (CMO) - Video packaging, audience growth (RoT reasoning)",
-  finance:
-    "Finance Agent (CFO) - ROI analysis, unit economics (CoT reasoning)",
-  strategy:
-    "Strategy Agent (CEO) - Major decisions, long-term vision (ToT reasoning)",
   general: "General Agent - Default assistant, cross-agent orchestration",
-  critic:
-    "Critic Agent - Devil's advocate, stress-testing (internal, not topic-bound)",
-  cto: "CTO Agent (Development) - GoBot dev, infra health, technical roadmap (Systematic reasoning)",
-  coo: "COO Agent (Operations) - Tasks, SOPs, vendors, schedules, database maintenance (Process/Systems reasoning)",
+  critic: "Critic Agent - Devil's advocate, stress-testing (internal, not topic-bound)",
+  software: "Software Engineering Agent - Full-stack coding, debugging, DevOps, shipping (Systematic reasoning)",
+  database: "Database Agent (Supabase) - Schema, queries, migrations, RLS, performance (CoT reasoning)",
+  "bp-docs": "BP Documents Agent - bp document creation, reports, SOPs (CoT reasoning)",
+  "bp-contracts": "BP Contracts Agent - MSAs, SOWs, vendor agreements, compliance (CoT reasoning)",
+  "bp-invoices": "BP Invoices Agent - Invoice review, PO matching, discrepancy tracking (CoT reasoning)",
+  "bp-finance": "BP Finance & Budgets Agent - Budget tracking, forecasting, cost analysis (CoT reasoning)",
 };

@@ -21,12 +21,12 @@ export interface AgentConfig {
 // Default topic-to-agent mapping. Update these with your Telegram forum topic IDs.
 // Find topic IDs by sending a message in each topic and checking the bot logs.
 export const topicAgentMap: Record<number, string> = {
-  3: "research",
-  4: "content",
-  5: "finance",
-  6: "strategy",
-  122: "coo",
-  123: "cto",
+  2: "software",
+  3: "database",
+  6: "bp-docs",
+  8: "bp-invoices",
+  9: "bp-finance",
+  27: "bp-contracts",
 };
 
 export function getAgentByTopicId(topicId: number): string | undefined {
@@ -35,29 +35,35 @@ export function getAgentByTopicId(topicId: number): string | undefined {
 
 export function getAgentConfig(agentName: string): AgentConfig | undefined {
   switch (agentName.toLowerCase()) {
-    case "research":
-    case "researcher":
-      return require("./research").default;
-    case "content":
-    case "cmo":
-      return require("./content").default;
+    case "software":
+    case "swe":
+    case "engineer":
+    case "code":
+      return require("./software").default;
+    case "database":
+    case "db":
+    case "supabase":
+      return require("./database").default;
+    case "bp-docs":
+    case "bpdocs":
+    case "documents":
+      return require("./bp-docs").default;
+    case "bp-contracts":
+    case "bpcontracts":
+    case "contracts":
+      return require("./bp-contracts").default;
+    case "bp-invoices":
+    case "bpinvoices":
+    case "invoices":
+      return require("./bp-invoices").default;
+    case "bp-finance":
+    case "bpfinance":
+    case "budgets":
     case "finance":
-    case "cfo":
-      return require("./finance").default;
-    case "strategy":
-    case "ceo":
-      return require("./strategy").default;
+      return require("./bp-finance").default;
     case "critic":
     case "devils-advocate":
       return require("./critic").default;
-    case "cto":
-    case "dev":
-    case "development":
-      return require("./cto").default;
-    case "coo":
-    case "ops":
-    case "operations":
-      return require("./coo").default;
     case "general":
     case "orchestrator":
     default:
@@ -67,13 +73,13 @@ export function getAgentConfig(agentName: string): AgentConfig | undefined {
 
 // Cross-agent invocation permissions
 export const AGENT_INVOCATION_MAP: Record<string, string[]> = {
-  research: ["critic"],
-  content: ["critic", "research"],
-  finance: ["critic"],
-  strategy: ["critic", "finance", "research", "cto"],
-  general: ["critic", "finance", "research", "content", "strategy", "cto", "coo"],
-  cto: ["critic", "research"],
-  coo: ["critic", "finance", "cto"],
+  software: ["critic", "database"],
+  database: ["critic", "software"],
+  "bp-docs": ["critic", "bp-contracts", "bp-finance"],
+  "bp-contracts": ["critic", "bp-docs", "bp-finance"],
+  "bp-invoices": ["critic", "bp-contracts", "bp-finance"],
+  "bp-finance": ["critic", "bp-invoices", "bp-contracts"],
+  general: ["critic", "software", "database", "bp-docs", "bp-contracts", "bp-invoices", "bp-finance"],
   critic: [], // Critic doesn't invoke others (prevents loops)
 };
 
