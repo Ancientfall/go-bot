@@ -10,26 +10,32 @@ import { Bot } from "grammy";
 
 /** Env var mapping: agent name → env var suffix */
 const AGENT_TOKEN_MAP: Record<string, string> = {
-  research: "TELEGRAM_BOT_TOKEN_RESEARCH",
-  content: "TELEGRAM_BOT_TOKEN_CONTENT",
-  finance: "TELEGRAM_BOT_TOKEN_FINANCE",
-  strategy: "TELEGRAM_BOT_TOKEN_STRATEGY",
+  software: "TELEGRAM_BOT_TOKEN_SOFTWARE",
+  database: "TELEGRAM_BOT_TOKEN_DATABASE",
+  "bp-docs": "TELEGRAM_BOT_TOKEN_BPDOCS",
+  "bp-contracts": "TELEGRAM_BOT_TOKEN_BPCONTRACTS",
+  "bp-invoices": "TELEGRAM_BOT_TOKEN_BPINVOICES",
+  "bp-finance": "TELEGRAM_BOT_TOKEN_BPFINANCE",
   critic: "TELEGRAM_BOT_TOKEN_CRITIC",
-  cto: "TELEGRAM_BOT_TOKEN_CTO",
-  coo: "TELEGRAM_BOT_TOKEN_COO",
 };
 
 /** Alias resolution: alternative names → canonical agent name */
 const AGENT_ALIASES: Record<string, string> = {
-  ceo: "strategy",
-  cfo: "finance",
-  cmo: "content",
-  researcher: "research",
+  swe: "software",
+  engineer: "software",
+  code: "software",
+  db: "database",
+  supabase: "database",
+  bpdocs: "bp-docs",
+  documents: "bp-docs",
+  bpcontracts: "bp-contracts",
+  contracts: "bp-contracts",
+  bpinvoices: "bp-invoices",
+  invoices: "bp-invoices",
+  bpfinance: "bp-finance",
+  budgets: "bp-finance",
+  finance: "bp-finance",
   "devils-advocate": "critic",
-  dev: "cto",
-  development: "cto",
-  ops: "coo",
-  operations: "coo",
 };
 
 export class BotRegistry {
