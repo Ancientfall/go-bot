@@ -11,6 +11,7 @@ import "./gemini-news";
 import "./gmail";
 import "./calendar";
 import "./notion-tasks";
+import "./ops-briefing";
 
 // Add your custom sources here:
 // import "./my-custom-source";

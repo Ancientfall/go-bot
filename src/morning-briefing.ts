@@ -77,7 +77,7 @@ async function buildAndSendBriefing(): Promise<void> {
   let briefing = `☀️ **GOOD MORNING ${userName.toUpperCase()}**\n_${dateStr}_\n\n`;
 
   // Add each source's section in a stable order
-  const sourceOrder = ["calendar", "gmail", "notion-tasks", "grok-news", "goals"];
+  const sourceOrder = ["calendar", "gmail", "notion-tasks", "ops-briefing", "grok-news", "goals"];
 
   for (const id of sourceOrder) {
     const entry = results.get(id);

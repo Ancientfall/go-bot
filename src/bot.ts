@@ -35,6 +35,8 @@ import { uploadAssetQuick, updateAssetDescription, parseAssetDescTag, stripAsset
 import { callFallbackLLM } from "./lib/fallback-llm";
 import { textToSpeech, initiatePhoneCall, isVoiceEnabled, isCallEnabled, waitForTranscript, summarizeTranscript, extractTaskFromTranscript } from "./lib/voice";
 import { transcribeAudio, isTranscriptionEnabled } from "./lib/transcribe";
+import { processInvoice, formatTelegramSummary, formatClaudeContext } from "./lib/invoice";
+import { addContract, addPurchaseOrder, updatePOSpend, listContracts, listPurchaseOrders, addVendor, getVendorSummary, listVendors } from "./lib/ops-data";
 import {
   saveMessage,
   getConversationContext,
@@ -395,6 +397,142 @@ async function handleTextMessage(ctx: Context): Promise<void> {
   if (lowerText === "/tasks" || lowerText === "tasks") {
     const status = await formatTaskStatus(chatId);
     await ctx.reply(status, { parse_mode: "Markdown" }).catch(() => ctx.reply(status));
+    return;
+  }
+
+  // ----- Ops Commands (contracts, POs) -----
+
+  // contract: <vendor> | <type> | <description> | expires: <date>
+  if (lowerText.startsWith("contract:")) {
+    const raw = text.slice("contract:".length).trim();
+    const parts = raw.split("|").map((s) => s.trim());
+    if (parts.length >= 3) {
+      const vendor = parts[0];
+      const type = parts[1];
+      const description = parts[2];
+      const expiresMatch = raw.match(/expires?:\s*(\d{4}-\d{2}-\d{2})/i);
+      const endDate = expiresMatch ? expiresMatch[1] : parts[3]?.replace(/expires?:\s*/i, "").trim();
+      if (vendor && type && endDate) {
+        const result = await addContract(vendor, type, description, endDate);
+        const reply = result.success
+          ? `Contract added: ${vendor} ${result.contractNumber} (expires ${endDate})`
+          : "Failed to add contract.";
+        await ctx.reply(reply);
+        return;
+      }
+    }
+    await ctx.reply("Format: contract: Vendor | Type | Description | expires: YYYY-MM-DD");
+    return;
+  }
+
+  // po: <vendor> | <po#> | <amount> | expires: <date>
+  if (lowerText.startsWith("po:") && !lowerText.startsWith("po-spend:")) {
+    const raw = text.slice("po:".length).trim();
+    const parts = raw.split("|").map((s) => s.trim());
+    if (parts.length >= 3) {
+      const vendor = parts[0];
+      const poNumber = parts[1];
+      const amount = parseFloat(parts[2].replace(/[,$]/g, ""));
+      const expiresMatch = raw.match(/expires?:\s*(\d{4}-\d{2}-\d{2})/i);
+      const expiryDate = expiresMatch ? expiresMatch[1] : parts[3]?.replace(/expires?:\s*/i, "").trim();
+      if (vendor && poNumber && !isNaN(amount)) {
+        const success = await addPurchaseOrder(vendor, poNumber, amount, expiryDate || "");
+        const fmtAmt = amount.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+        const reply = success
+          ? `PO added: ${poNumber} (${vendor}) $${fmtAmt}${expiryDate ? ` expires ${expiryDate}` : ""}`
+          : "Failed to add PO.";
+        await ctx.reply(reply);
+        return;
+      }
+    }
+    await ctx.reply("Format: po: Vendor | PO-Number | Amount | expires: YYYY-MM-DD");
+    return;
+  }
+
+  // po-spend: <po#> | <amount>
+  if (lowerText.startsWith("po-spend:")) {
+    const raw = text.slice("po-spend:".length).trim();
+    const parts = raw.split("|").map((s) => s.trim());
+    if (parts.length >= 2) {
+      const poNumber = parts[0];
+      const amount = parseFloat(parts[1].replace(/[,$]/g, ""));
+      if (poNumber && !isNaN(amount)) {
+        const result = await updatePOSpend(poNumber, amount);
+        if (result.success) {
+          const fmtSpent = result.newSpent!.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+          const fmtTotal = result.total!.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+          const pct = result.total! > 0 ? Math.round((result.newSpent! / result.total!) * 100) : 0;
+          await ctx.reply(`${poNumber}: $${fmtSpent}/$${fmtTotal} (${pct}% used)`);
+        } else {
+          await ctx.reply(`PO "${poNumber}" not found or not open.`);
+        }
+        return;
+      }
+    }
+    await ctx.reply("Format: po-spend: PO-Number | Amount");
+    return;
+  }
+
+  // /contracts — list active contracts
+  if (lowerText === "/contracts" || lowerText === "contracts") {
+    const result = await listContracts();
+    await ctx.reply(`**Active Contracts:**\n${result}`, { parse_mode: "Markdown" }).catch(() =>
+      ctx.reply(`Active Contracts:\n${result}`)
+    );
+    return;
+  }
+
+  // /pos — list open POs
+  if (lowerText === "/pos" || lowerText === "pos") {
+    const result = await listPurchaseOrders();
+    await ctx.reply(`**Open POs:**\n${result}`, { parse_mode: "Markdown" }).catch(() =>
+      ctx.reply(`Open POs:\n${result}`)
+    );
+    return;
+  }
+
+  // vendor: <name> | <display name> — add to vendor master
+  if (lowerText.startsWith("vendor:") && !lowerText.startsWith("vendor: ")) {
+    // "vendor:" prefix for adding — handled below
+  }
+  if (lowerText.startsWith("vendor:") && text.includes("|")) {
+    const raw = text.slice("vendor:".length).trim();
+    const parts = raw.split("|").map((s) => s.trim());
+    if (parts.length >= 2) {
+      const name = parts[0];
+      const displayName = parts[1];
+      const success = await addVendor(name, displayName);
+      await ctx.reply(success ? `Vendor added: ${displayName}` : "Failed to add vendor (may already exist).");
+      return;
+    }
+    await ctx.reply("Format: vendor: name | Display Name");
+    return;
+  }
+
+  // /vendor <name> — vendor summary (contracts + POs + invoices)
+  if (lowerText.startsWith("/vendor ") || lowerText.startsWith("/vendor\n")) {
+    const vendorName = text.slice("/vendor".length).trim();
+    if (vendorName) {
+      const typing = createTypingIndicator(ctx);
+      typing.start();
+      try {
+        const summary = await getVendorSummary(vendorName);
+        await ctx.reply(`**Vendor: ${vendorName.toUpperCase()}**\n\n${summary}`, { parse_mode: "Markdown" }).catch(() =>
+          ctx.reply(`Vendor: ${vendorName.toUpperCase()}\n\n${summary}`)
+        );
+      } finally {
+        typing.stop();
+      }
+      return;
+    }
+  }
+
+  // /vendors — list all registered vendors
+  if (lowerText === "/vendors" || lowerText === "vendors") {
+    const result = await listVendors();
+    await ctx.reply(`**Registered Vendors:**\n${result}`, { parse_mode: "Markdown" }).catch(() =>
+      ctx.reply(`Registered Vendors:\n${result}`)
+    );
     return;
   }
 
@@ -766,7 +904,25 @@ async function handleDocumentMessage(ctx: Context): Promise<void> {
     const topicId = (ctx.message as any)?.message_thread_id as number | undefined;
     const agentName = topicId ? getAgentByTopicId(topicId) || "general" : "general";
 
-    const docPrompt = `[User sent a document saved at: ${localPath}, filename: ${fileName}]\n\n${caption}`;
+    // Invoice pre-processing: topic 8 (bp-invoices) + PDF file
+    let invoiceContext = "";
+    const isPdf = fileName.toLowerCase().endsWith(".pdf");
+    if (topicId === 8 && isPdf) {
+      try {
+        const invoiceResult = await processInvoice(localPath);
+        if (invoiceResult) {
+          // Send quick summary to user immediately
+          const summary = formatTelegramSummary(invoiceResult);
+          await ctx.reply(summary, { message_thread_id: topicId }).catch(() => {});
+          // Attach structured data for Claude
+          invoiceContext = "\n\n" + formatClaudeContext(invoiceResult);
+        }
+      } catch (err) {
+        console.error("[invoice] Pre-processing failed (non-fatal):", err);
+      }
+    }
+
+    const docPrompt = `[User sent a document saved at: ${localPath}, filename: ${fileName}]\n\n${caption}${invoiceContext}`;
     const tier = classifyComplexity(caption);
     let claudeResponse: string;
 

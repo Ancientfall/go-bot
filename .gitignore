@@ -14,9 +14,11 @@ checkin-state.json
 config/profile.md
 config/schedule.json
 config/.google-tokens.json
+config/rates/*.csv
 news-history.json
 last-processed-call.json
 meeting-actions-state.json
 bun.lock
 gobot-master/
 .mcp.json
+supabase/.temp/

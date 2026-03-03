@@ -304,6 +304,212 @@ END;
 $$;
 
 -- ============================================================
+-- Invoice Verifications (audit trail for automated invoice processing)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS invoice_verifications (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  vendor TEXT,
+  vendor_display TEXT,
+  invoice_number TEXT,
+  po_number TEXT,
+  invoice_date TEXT,
+  invoice_total NUMERIC(12, 2),
+  line_item_count INTEGER DEFAULT 0,
+  verdict TEXT NOT NULL CHECK (verdict IN ('GOOD_TO_PAY', 'REVIEW_REQUIRED', 'ISSUES_FOUND')),
+  issues TEXT[] DEFAULT '{}',
+  summary TEXT,
+  raw_result JSONB DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_invoice_verifications_vendor ON invoice_verifications (vendor);
+CREATE INDEX IF NOT EXISTS idx_invoice_verifications_verdict ON invoice_verifications (verdict);
+CREATE INDEX IF NOT EXISTS idx_invoice_verifications_created_at ON invoice_verifications (created_at DESC);
+
+ALTER TABLE invoice_verifications ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Service role full access" ON invoice_verifications
+  FOR ALL USING (auth.role() = 'service_role');
+
+CREATE POLICY "Anon read access" ON invoice_verifications
+  FOR SELECT USING (auth.role() = 'anon');
+
+CREATE POLICY "Anon insert access" ON invoice_verifications
+  FOR INSERT WITH CHECK (auth.role() = 'anon');
+
+-- ============================================================
+-- Contracts (track vendor agreements, renewals, expirations)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS contracts (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  vendor TEXT NOT NULL,
+  contract_number TEXT,
+  contract_type TEXT NOT NULL DEFAULT 'other'
+    CHECK (contract_type IN ('MSA', 'SOW', 'amendment', 'service_agreement', 'other')),
+  description TEXT,
+  start_date DATE,
+  end_date DATE,
+  status TEXT NOT NULL DEFAULT 'active'
+    CHECK (status IN ('active', 'expired', 'pending_renewal', 'terminated')),
+  total_value NUMERIC(14, 2),
+  renewal_notice_days INTEGER DEFAULT 90,
+  notes TEXT,
+  metadata JSONB DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_contracts_vendor ON contracts (vendor);
+CREATE INDEX IF NOT EXISTS idx_contracts_status ON contracts (status);
+CREATE INDEX IF NOT EXISTS idx_contracts_end_date ON contracts (end_date);
+
+ALTER TABLE contracts ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Service role full access" ON contracts
+  FOR ALL USING (auth.role() = 'service_role');
+
+CREATE POLICY "Anon read access" ON contracts
+  FOR SELECT USING (auth.role() = 'anon');
+
+CREATE POLICY "Anon insert access" ON contracts
+  FOR INSERT WITH CHECK (auth.role() = 'anon');
+
+CREATE POLICY "Anon update access" ON contracts
+  FOR UPDATE USING (auth.role() = 'anon');
+
+-- ============================================================
+-- Purchase Orders (track PO spend, expiry, utilization)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS purchase_orders (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  vendor TEXT NOT NULL,
+  po_number TEXT NOT NULL,
+  description TEXT,
+  contract_id UUID REFERENCES contracts(id),
+  issued_date DATE DEFAULT CURRENT_DATE,
+  expiry_date DATE,
+  total_amount NUMERIC(14, 2) NOT NULL,
+  spent_amount NUMERIC(14, 2) DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'open'
+    CHECK (status IN ('open', 'closed', 'exhausted', 'cancelled')),
+  notes TEXT,
+  metadata JSONB DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_vendor ON purchase_orders (vendor);
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_po_number ON purchase_orders (po_number);
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_status ON purchase_orders (status);
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_expiry_date ON purchase_orders (expiry_date);
+
+ALTER TABLE purchase_orders ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Service role full access" ON purchase_orders
+  FOR ALL USING (auth.role() = 'service_role');
+
+CREATE POLICY "Anon read access" ON purchase_orders
+  FOR SELECT USING (auth.role() = 'anon');
+
+CREATE POLICY "Anon insert access" ON purchase_orders
+  FOR INSERT WITH CHECK (auth.role() = 'anon');
+
+CREATE POLICY "Anon update access" ON purchase_orders
+  FOR UPDATE USING (auth.role() = 'anon');
+
+-- ============================================================
+-- Vendor Master (single source of truth for vendor identity)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS vendor_master (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  name TEXT NOT NULL UNIQUE,
+  display_name TEXT NOT NULL,
+  vendor_code TEXT,
+  aliases TEXT[] DEFAULT '{}',
+  status TEXT NOT NULL DEFAULT 'active'
+    CHECK (status IN ('active', 'inactive', 'suspended')),
+  contact_name TEXT,
+  contact_email TEXT,
+  contact_phone TEXT,
+  payment_terms_days INTEGER DEFAULT 30,
+  notes TEXT,
+  metadata JSONB DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_vendor_master_name ON vendor_master (name);
+CREATE INDEX IF NOT EXISTS idx_vendor_master_status ON vendor_master (status);
+
+ALTER TABLE vendor_master ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Service role full access" ON vendor_master
+  FOR ALL USING (auth.role() = 'service_role');
+
+CREATE POLICY "Anon read access" ON vendor_master
+  FOR SELECT USING (auth.role() = 'anon');
+
+CREATE POLICY "Anon insert access" ON vendor_master
+  FOR INSERT WITH CHECK (auth.role() = 'anon');
+
+CREATE POLICY "Anon update access" ON vendor_master
+  FOR UPDATE USING (auth.role() = 'anon');
+
+-- ============================================================
+-- Contract Rates (versioned rate master — replaces CSV files)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS contract_rates (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  vendor TEXT NOT NULL,
+  description TEXT NOT NULL,
+  catalog_number TEXT,
+  unit TEXT NOT NULL,
+  rate NUMERIC(12, 2) NOT NULL,
+  effective_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  end_date DATE,
+  category TEXT,
+  notes TEXT,
+  metadata JSONB DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_contract_rates_vendor ON contract_rates (vendor);
+CREATE INDEX IF NOT EXISTS idx_contract_rates_vendor_effective ON contract_rates (vendor, effective_date DESC);
+CREATE INDEX IF NOT EXISTS idx_contract_rates_catalog ON contract_rates (catalog_number);
+
+ALTER TABLE contract_rates ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Service role full access" ON contract_rates
+  FOR ALL USING (auth.role() = 'service_role');
+
+CREATE POLICY "Anon read access" ON contract_rates
+  FOR SELECT USING (auth.role() = 'anon');
+
+CREATE POLICY "Anon insert access" ON contract_rates
+  FOR INSERT WITH CHECK (auth.role() = 'anon');
+
+-- ============================================================
+-- Composite Indexes (performance for ops queries)
+-- ============================================================
+
+CREATE INDEX IF NOT EXISTS idx_invoice_verifications_vendor_date
+  ON invoice_verifications (vendor, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_invoice_verifications_verdict_date
+  ON invoice_verifications (verdict, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_contracts_vendor_status_end
+  ON contracts (vendor, status, end_date);
+
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_vendor_status
+  ON purchase_orders (vendor, status);
+
+-- ============================================================
 -- MIGRATION v2: Asset Storage (2026-02)
 -- ============================================================
 -- If upgrading from a previous version, just run this entire file again.
