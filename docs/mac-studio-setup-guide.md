@@ -31,7 +31,6 @@ The script is interactive — it will ask you before making major changes and ex
 | **Git** | Version control |
 | **GitHub CLI (gh)** | Manage repos, PRs, and issues from the terminal |
 | **Claude Code CLI** | Anthropic's AI coding assistant in the terminal |
-| **tmux** | Run persistent terminal sessions that survive SSH disconnects |
 | **ffmpeg** | Audio/video processing (powers GoBot's voice features) |
 | **jq** | JSON processing for configs and API responses |
 | **htop** | Interactive process monitor |
@@ -72,13 +71,11 @@ The script is interactive — it will ask you before making major changes and ex
 | **iTerm2** | Better terminal (tabs, split panes, search, profiles) |
 | **VS Code** | Code editor with great extensions |
 | **Docker Desktop** | Run containers (needed for Open WebUI and other services) |
-| **Arc Browser** | Modern browser with built-in AI features, spaces, profiles |
 | **Notion** | Project management (integrates with GoBot morning briefings) |
 | **Raycast** | Spotlight replacement with clipboard history, snippets, AI |
 | **Rectangle** | Window snapping with keyboard shortcuts (Ctrl+Opt+Arrow) |
 | **AltTab** | Windows-style Alt+Tab window switcher with previews |
 | **Stats** | CPU/GPU/RAM/network monitor in menu bar |
-| **1Password** | Password manager (store API keys securely) |
 | **The Unarchiver** | Open any compressed file format |
 | **AppCleaner** | Cleanly remove apps and their leftover files |
 
@@ -97,8 +94,6 @@ ssh andrew@192.168.x.x
 # From anywhere (via Tailscale)
 ssh andrew@100.x.x.x
 
-# Pro tip: Use tmux for sessions that survive disconnects
-ssh andrew@100.x.x.x -t "tmux attach || tmux new"
 ```
 
 ### 2. Screen Sharing (Full Desktop Access)
@@ -286,33 +281,6 @@ FALLBACK_OFFLINE_ONLY=false     # Set true to skip cloud, use local only
 | `Ctrl+Opt+Enter` | Rectangle | Maximize window |
 | `Cmd+Space` | Raycast | Open launcher (Spotlight replacement) |
 | `Cmd+\`` | macOS | Switch windows within same app |
-| `Ctrl+B, D` | tmux | Detach session (keeps running) |
-| `Ctrl+B, C` | tmux | New window in tmux |
-| `Ctrl+B, N/P` | tmux | Next/previous tmux window |
-
----
-
-## tmux Quick Reference
-
-tmux lets you run persistent terminal sessions. When you SSH in, start tmux — if your connection drops, the session keeps running and you can reattach.
-
-```bash
-# Start a new named session
-tmux new -s work
-
-# Detach from session (keeps running)
-# Press: Ctrl+B, then D
-
-# List sessions
-tmux ls
-
-# Reattach to a session
-tmux attach -t work
-
-# SSH and auto-attach
-ssh andrew@100.x.x.x -t "tmux attach || tmux new -s main"
-```
-
 ---
 
 ## Monitoring & Maintenance

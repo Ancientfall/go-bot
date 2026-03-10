@@ -14,7 +14,7 @@
 # What this script does:
 #   1. Installs Xcode Command Line Tools
 #   2. Installs Homebrew
-#   3. Installs core dev tools (git, bun, node, python, gh, tmux, ffmpeg)
+#   3. Installs core dev tools (git, bun, node, python, gh, ffmpeg)
 #   4. Installs Claude Code CLI
 #   5. Installs & configures Ollama for local LLMs
 #   6. Pulls GoBot-optimized models (qwen3-coder + RAM-appropriate selection)
@@ -232,17 +232,6 @@ else
     brew install wget
     success "wget installed"
     add_installed "wget"
-fi
-
-# tmux (terminal multiplexer — run multiple sessions, detach/reattach)
-if command -v tmux &>/dev/null; then
-    success "tmux already installed"
-    add_skipped "tmux"
-else
-    step "Installing tmux (run persistent terminal sessions over SSH)..."
-    brew install tmux
-    success "tmux installed"
-    add_installed "tmux"
 fi
 
 # tree (directory visualization)
@@ -686,18 +675,6 @@ else
     } || add_manual "Install Telegram Desktop from https://desktop.telegram.org"
 fi
 
-# Arc Browser (modern browser with spaces, profiles, AI features)
-if [[ -d "/Applications/Arc.app" ]]; then
-    success "Arc Browser already installed"
-    add_skipped "Arc Browser"
-else
-    step "Installing Arc Browser (modern browser with built-in AI)..."
-    brew install --cask arc 2>/dev/null && {
-        success "Arc Browser installed"
-        add_installed "Arc Browser"
-    } || add_skipped "Arc Browser (install failed, optional)"
-fi
-
 # Notion (project management — integrates with GoBot briefings)
 if [[ -d "/Applications/Notion.app" ]]; then
     success "Notion already installed"
@@ -711,20 +688,8 @@ else
 fi
 
 echo ""
-echo -e "   ${BOLD}Security & Utilities${NC}"
+echo -e "   ${BOLD}Utilities${NC}"
 echo ""
-
-# 1Password (password manager)
-if [[ -d "/Applications/1Password.app" ]] || [[ -d "/Applications/1Password 7.app" ]]; then
-    success "1Password already installed"
-    add_skipped "1Password"
-else
-    step "Installing 1Password (password manager — store API keys securely)..."
-    brew install --cask 1password 2>/dev/null && {
-        success "1Password installed"
-        add_installed "1Password"
-    } || add_skipped "1Password (install failed, optional)"
-fi
 
 # The Unarchiver (handle any compressed file format)
 if [[ -d "/Applications/The Unarchiver.app" ]]; then
@@ -1046,12 +1011,6 @@ echo "  Ctrl+Opt+Arrow    Rectangle: snap window to half/quarter screen"
 echo "  Cmd+Space          Raycast: spotlight replacement (or Spotlight)"
 echo "  Cmd+\`              Switch windows within same app"
 echo ""
-echo -e "${BOLD}Useful tmux commands (persistent SSH sessions):${NC}"
-echo "  tmux new -s work   Start a named session"
-echo "  tmux attach        Reattach to last session"
-echo "  Ctrl+B, D          Detach from session (keeps running)"
-echo "  Ctrl+B, C          New window inside session"
-echo ""
 echo -e "${BOLD}━━━ Next Steps for Andrew ━━━${NC}"
 echo ""
 echo "  1. Open Tailscale app → Sign in → Approve this device"
@@ -1068,7 +1027,6 @@ echo "  7. For always-on mode: bun run setup:launchd"
 echo "  8. Visit http://localhost:3080 to chat with local models via Open WebUI"
 echo ""
 echo -e "${BOLD}Pro Tips:${NC}"
-echo "  - Use 'tmux' when SSHing in so sessions survive disconnects"
 echo "  - Use Stats menu bar app to watch memory when running large models"
 echo "  - Open WebUI at :3080 lets you chat with ALL your Ollama models"
 echo "  - GoBot auto-falls back to local Ollama when Claude is unavailable"
