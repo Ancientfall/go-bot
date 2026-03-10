@@ -14,16 +14,18 @@
 # What this script does:
 #   1. Installs Xcode Command Line Tools
 #   2. Installs Homebrew
-#   3. Installs core development tools (git, bun, node, python)
-#   4. Installs & configures Ollama for local LLMs
-#   5. Pulls recommended models for the Mac Studio's unified memory
-#   6. Installs LM Studio (GUI for local models)
-#   7. Enables macOS Remote Access (SSH + Screen Sharing)
-#   8. Installs remote access tools (Tailscale VPN)
-#   9. Installs useful Mac apps (iTerm2, VS Code, etc.)
-#  10. Clones and sets up GoBot
-#  11. Configures macOS power & performance settings
-#  12. Runs GoBot's own setup checks
+#   3. Installs core dev tools (git, bun, node, python, gh, tmux, ffmpeg)
+#   4. Installs Claude Code CLI
+#   5. Installs & configures Ollama for local LLMs
+#   6. Pulls GoBot-optimized models (qwen3-coder + RAM-appropriate selection)
+#   7. Installs LM Studio (GUI for local models)
+#   8. Enables macOS Remote Access (SSH + Screen Sharing)
+#   9. Installs Tailscale VPN (remote access from anywhere)
+#  10. Installs productivity apps (Docker, Open WebUI, Telegram, VS Code,
+#      iTerm2, Rectangle, Stats, Raycast, Arc, Notion, 1Password, etc.)
+#  11. Configures macOS for always-on server mode (power, performance,
+#      Dock, Finder, keyboard, screenshots, security, firewall)
+#  12. Clones and sets up GoBot with Ollama fallback pre-configured
 #
 # Tested on: macOS Ventura 14+, Apple Silicon (M1/M2/M4 Ultra)
 # ─────────────────────────────────────────────────────────────────────
@@ -221,6 +223,61 @@ else
     add_installed "htop"
 fi
 
+# wget (file downloader — useful for fetching models, configs)
+if command -v wget &>/dev/null; then
+    success "wget already installed"
+    add_skipped "wget"
+else
+    step "Installing wget..."
+    brew install wget
+    success "wget installed"
+    add_installed "wget"
+fi
+
+# tmux (terminal multiplexer — run multiple sessions, detach/reattach)
+if command -v tmux &>/dev/null; then
+    success "tmux already installed"
+    add_skipped "tmux"
+else
+    step "Installing tmux (run persistent terminal sessions over SSH)..."
+    brew install tmux
+    success "tmux installed"
+    add_installed "tmux"
+fi
+
+# tree (directory visualization)
+if command -v tree &>/dev/null; then
+    success "tree already installed"
+    add_skipped "tree"
+else
+    step "Installing tree..."
+    brew install tree
+    success "tree installed"
+    add_installed "tree"
+fi
+
+# gh (GitHub CLI — manage repos, PRs, issues from terminal)
+if command -v gh &>/dev/null; then
+    success "GitHub CLI already installed"
+    add_skipped "GitHub CLI (gh)"
+else
+    step "Installing GitHub CLI..."
+    brew install gh
+    success "GitHub CLI installed"
+    add_installed "GitHub CLI (gh)"
+fi
+
+# ffmpeg (media processing — useful for voice/transcription features)
+if command -v ffmpeg &>/dev/null; then
+    success "ffmpeg already installed"
+    add_skipped "ffmpeg"
+else
+    step "Installing ffmpeg (audio/video processing for voice features)..."
+    brew install ffmpeg
+    success "ffmpeg installed"
+    add_installed "ffmpeg"
+fi
+
 # ── 4. Claude Code CLI ─────────────────────────────────────────────
 header "Step 4/11: Claude Code CLI"
 
@@ -275,43 +332,62 @@ echo ""
 echo "Based on your ${RAM_GB} GB RAM, here are the recommended models:"
 echo ""
 
-# Always pull these (small, fast, universally useful)
+# GoBot uses "qwen3-coder" as its default Ollama fallback model (see src/lib/fallback-llm.ts).
+# We always install qwen3-coder plus the best general/reasoning models for the available RAM.
 MODELS_TO_PULL=()
+
+# Model roles explained:
+#   qwen3-coder   — GoBot's DEFAULT fallback model (coding-optimized, fast)
+#   llama3.3      — Best open general-purpose model from Meta
+#   deepseek-r1   — Chain-of-thought reasoning specialist
+#   qwen3         — Alibaba's flagship (excellent at coding + multilingual)
+#   llama3.2:3b   — Ultra-fast for quick responses (2-3 sec)
+#   nomic-embed-text — Local embeddings for semantic search / RAG
+
+echo -e "  ${CYAN}[GoBot Default]${NC}"
+echo -e "  ${GREEN}●${NC} qwen3-coder           — GoBot's fallback model (coding-optimized)"
+echo ""
+echo -e "  ${CYAN}[Based on ${RAM_GB} GB RAM]${NC}"
 
 if [[ $RAM_GB -ge 192 ]]; then
     echo -e "  ${GREEN}●${NC} llama3.3:70b          — Meta's best open model (70B, full quality)"
     echo -e "  ${GREEN}●${NC} qwen3:72b             — Alibaba's top model (72B, great for coding)"
     echo -e "  ${GREEN}●${NC} deepseek-r1:70b       — DeepSeek reasoning model (70B)"
-    echo -e "  ${GREEN}●${NC} qwen3:32b             — Fast coding model (32B)"
-    echo -e "  ${GREEN}●${NC} llama3.2:3b           — Ultra-fast small model for quick tasks"
-    echo -e "  ${GREEN}●${NC} nomic-embed-text      — Embeddings model for RAG"
-    MODELS_TO_PULL=("llama3.3:70b" "qwen3:72b" "deepseek-r1:70b" "qwen3:32b" "llama3.2:3b" "nomic-embed-text")
+    echo -e "  ${GREEN}●${NC} qwen3:32b             — Fast mid-size coding model (32B)"
+    echo -e "  ${GREEN}●${NC} gemma3:27b            — Google's latest open model (27B, strong reasoning)"
+    echo -e "  ${GREEN}●${NC} mistral-small         — Mistral's efficient model (great instruction following)"
+    echo -e "  ${GREEN}●${NC} llama3.2:3b           — Ultra-fast for quick tasks (3B)"
+    echo -e "  ${GREEN}●${NC} nomic-embed-text      — Local embeddings for semantic search"
+    MODELS_TO_PULL=("qwen3-coder" "llama3.3:70b" "qwen3:72b" "deepseek-r1:70b" "qwen3:32b" "gemma3:27b" "mistral-small" "llama3.2:3b" "nomic-embed-text")
 elif [[ $RAM_GB -ge 96 ]]; then
+    echo -e "  ${GREEN}●${NC} llama3.3:70b          — Meta's best (70B — fits with headroom)"
     echo -e "  ${GREEN}●${NC} qwen3:32b             — Great coding model (32B)"
-    echo -e "  ${GREEN}●${NC} llama3.3:70b          — Meta's best (70B — will be tight, may swap)"
     echo -e "  ${GREEN}●${NC} deepseek-r1:32b       — Reasoning model (32B)"
-    echo -e "  ${GREEN}●${NC} llama3.2:3b           — Ultra-fast small model for quick tasks"
-    echo -e "  ${GREEN}●${NC} nomic-embed-text      — Embeddings model for RAG"
-    MODELS_TO_PULL=("qwen3:32b" "llama3.3:70b" "deepseek-r1:32b" "llama3.2:3b" "nomic-embed-text")
+    echo -e "  ${GREEN}●${NC} gemma3:27b            — Google's latest open model (27B)"
+    echo -e "  ${GREEN}●${NC} llama3.2:3b           — Ultra-fast for quick tasks (3B)"
+    echo -e "  ${GREEN}●${NC} nomic-embed-text      — Local embeddings for semantic search"
+    MODELS_TO_PULL=("qwen3-coder" "llama3.3:70b" "qwen3:32b" "deepseek-r1:32b" "gemma3:27b" "llama3.2:3b" "nomic-embed-text")
 elif [[ $RAM_GB -ge 64 ]]; then
     echo -e "  ${GREEN}●${NC} qwen3:32b             — Great coding model (32B)"
     echo -e "  ${GREEN}●${NC} deepseek-r1:32b       — Reasoning model (32B)"
+    echo -e "  ${GREEN}●${NC} gemma3:12b            — Google's efficient model (12B)"
     echo -e "  ${GREEN}●${NC} llama3.1:8b           — Solid general model (8B)"
-    echo -e "  ${GREEN}●${NC} llama3.2:3b           — Ultra-fast small model"
-    echo -e "  ${GREEN}●${NC} nomic-embed-text      — Embeddings model for RAG"
-    MODELS_TO_PULL=("qwen3:32b" "deepseek-r1:32b" "llama3.1:8b" "llama3.2:3b" "nomic-embed-text")
+    echo -e "  ${GREEN}●${NC} llama3.2:3b           — Ultra-fast small model (3B)"
+    echo -e "  ${GREEN}●${NC} nomic-embed-text      — Local embeddings for semantic search"
+    MODELS_TO_PULL=("qwen3-coder" "qwen3:32b" "deepseek-r1:32b" "gemma3:12b" "llama3.1:8b" "llama3.2:3b" "nomic-embed-text")
 elif [[ $RAM_GB -ge 32 ]]; then
     echo -e "  ${GREEN}●${NC} llama3.1:8b           — Solid general model (8B)"
     echo -e "  ${GREEN}●${NC} qwen3:8b              — Good coding model (8B)"
     echo -e "  ${GREEN}●${NC} deepseek-r1:8b        — Reasoning model (8B)"
-    echo -e "  ${GREEN}●${NC} llama3.2:3b           — Ultra-fast small model"
-    echo -e "  ${GREEN}●${NC} nomic-embed-text      — Embeddings model for RAG"
-    MODELS_TO_PULL=("llama3.1:8b" "qwen3:8b" "deepseek-r1:8b" "llama3.2:3b" "nomic-embed-text")
+    echo -e "  ${GREEN}●${NC} gemma3:4b             — Google's small model (4B)"
+    echo -e "  ${GREEN}●${NC} llama3.2:3b           — Ultra-fast small model (3B)"
+    echo -e "  ${GREEN}●${NC} nomic-embed-text      — Local embeddings for semantic search"
+    MODELS_TO_PULL=("qwen3-coder" "llama3.1:8b" "qwen3:8b" "deepseek-r1:8b" "gemma3:4b" "llama3.2:3b" "nomic-embed-text")
 else
     echo -e "  ${GREEN}●${NC} llama3.2:3b           — Fast small model (3B)"
-    echo -e "  ${GREEN}●${NC} qwen3:4b              — Lightweight coding model (4B)"
-    echo -e "  ${GREEN}●${NC} nomic-embed-text      — Embeddings model for RAG"
-    MODELS_TO_PULL=("llama3.2:3b" "qwen3:4b" "nomic-embed-text")
+    echo -e "  ${GREEN}●${NC} gemma3:4b             — Google's small model (4B)"
+    echo -e "  ${GREEN}●${NC} nomic-embed-text      — Local embeddings for semantic search"
+    MODELS_TO_PULL=("qwen3-coder" "llama3.2:3b" "gemma3:4b" "nomic-embed-text")
 fi
 
 echo ""
@@ -464,7 +540,7 @@ fi
 header "Step 9/11: Recommended Applications"
 
 echo ""
-echo "   These are useful development & productivity apps."
+echo -e "   ${BOLD}Development Tools${NC}"
 echo ""
 
 # iTerm2
@@ -472,7 +548,7 @@ if [[ -d "/Applications/iTerm.app" ]]; then
     success "iTerm2 already installed"
     add_skipped "iTerm2"
 else
-    step "Installing iTerm2 (better terminal)..."
+    step "Installing iTerm2 (better terminal with tabs, split panes, search)..."
     brew install --cask iterm2 2>/dev/null && {
         success "iTerm2 installed"
         add_installed "iTerm2"
@@ -491,14 +567,69 @@ else
     } || add_manual "Install VS Code from https://code.visualstudio.com"
 fi
 
+# Docker Desktop (containers — useful for dev and self-hosted services)
+if [[ -d "/Applications/Docker.app" ]] || command -v docker &>/dev/null; then
+    success "Docker already installed"
+    add_skipped "Docker"
+else
+    step "Installing Docker Desktop (containers for dev & self-hosted services)..."
+    brew install --cask docker 2>/dev/null && {
+        success "Docker Desktop installed"
+        add_installed "Docker Desktop"
+    } || add_manual "Install Docker Desktop from https://docker.com/products/docker-desktop"
+fi
+
+echo ""
+echo -e "   ${BOLD}AI & LLM Tools${NC}"
+echo ""
+
+# Open WebUI (beautiful web chat interface for Ollama — like ChatGPT but local)
+step "Checking for Open WebUI (ChatGPT-like interface for local models)..."
+if command -v docker &>/dev/null || [[ -d "/Applications/Docker.app" ]]; then
+    WEBUI_RUNNING=$(docker ps 2>/dev/null | grep -c "open-webui" || echo "0")
+    if [[ "$WEBUI_RUNNING" -gt 0 ]]; then
+        success "Open WebUI already running"
+        add_skipped "Open WebUI"
+    else
+        echo ""
+        echo "   Open WebUI gives you a ChatGPT-like web interface for all your local models."
+        echo "   Access it at http://localhost:3080 from any device on your network."
+        echo ""
+        read -rp "   Install Open WebUI? (requires Docker) [Y/n] " INSTALL_WEBUI
+        INSTALL_WEBUI=${INSTALL_WEBUI:-Y}
+        if [[ "$INSTALL_WEBUI" =~ ^[Yy]$ ]]; then
+            docker run -d --name open-webui \
+                -p 3080:8080 \
+                --add-host=host.docker.internal:host-gateway \
+                -e OLLAMA_BASE_URL=http://host.docker.internal:11434 \
+                -v open-webui:/app/backend/data \
+                --restart always \
+                ghcr.io/open-webui/open-webui:main 2>/dev/null && {
+                success "Open WebUI installed — access at http://localhost:3080"
+                add_installed "Open WebUI (http://localhost:3080)"
+            } || {
+                warn "Docker may need to be started first. Open Docker Desktop, then retry."
+                add_manual "Start Docker Desktop, then run: docker run -d --name open-webui -p 3080:8080 --add-host=host.docker.internal:host-gateway -e OLLAMA_BASE_URL=http://host.docker.internal:11434 -v open-webui:/app/backend/data --restart always ghcr.io/open-webui/open-webui:main"
+            }
+        fi
+    fi
+else
+    info "Open WebUI requires Docker. Install Docker first, then run the setup again."
+    add_manual "After Docker is installed: docker run -d --name open-webui -p 3080:8080 --add-host=host.docker.internal:host-gateway -e OLLAMA_BASE_URL=http://host.docker.internal:11434 -v open-webui:/app/backend/data --restart always ghcr.io/open-webui/open-webui:main"
+fi
+
+echo ""
+echo -e "   ${BOLD}System Monitoring & Productivity${NC}"
+echo ""
+
 # Stats (system monitor in menu bar)
 if [[ -d "/Applications/Stats.app" ]]; then
     success "Stats already installed"
     add_skipped "Stats"
 else
-    step "Installing Stats (system monitor in menu bar)..."
+    step "Installing Stats (CPU/GPU/RAM/network monitor in menu bar)..."
     brew install --cask stats 2>/dev/null && {
-        success "Stats installed — great for monitoring GPU/CPU/RAM during LLM inference"
+        success "Stats installed — essential for monitoring during LLM inference"
         add_installed "Stats (system monitor)"
     } || add_manual "Install Stats from https://github.com/exelban/stats"
 fi
@@ -508,18 +639,122 @@ if [[ -d "/Applications/Raycast.app" ]]; then
     success "Raycast already installed"
     add_skipped "Raycast"
 else
-    step "Installing Raycast (Spotlight replacement with AI features)..."
+    step "Installing Raycast (Spotlight replacement with clipboard history, snippets, AI)..."
     brew install --cask raycast 2>/dev/null && {
         success "Raycast installed"
         add_installed "Raycast"
     } || add_skipped "Raycast (install failed)"
 fi
 
+# Rectangle (window management — snap windows with keyboard shortcuts)
+if [[ -d "/Applications/Rectangle.app" ]]; then
+    success "Rectangle already installed"
+    add_skipped "Rectangle"
+else
+    step "Installing Rectangle (window snapping with keyboard shortcuts)..."
+    brew install --cask rectangle 2>/dev/null && {
+        success "Rectangle installed — use Ctrl+Option+Arrow keys to snap windows"
+        add_installed "Rectangle (window manager)"
+    } || add_skipped "Rectangle (install failed)"
+fi
+
+# Alt-Tab (Windows-style Alt+Tab window switcher with previews)
+if [[ -d "/Applications/AltTab.app" ]]; then
+    success "AltTab already installed"
+    add_skipped "AltTab"
+else
+    step "Installing AltTab (Windows-style window switcher with previews)..."
+    brew install --cask alt-tab 2>/dev/null && {
+        success "AltTab installed"
+        add_installed "AltTab"
+    } || add_skipped "AltTab (install failed)"
+fi
+
+echo ""
+echo -e "   ${BOLD}Communication & Browsing${NC}"
+echo ""
+
+# Telegram Desktop (required for interacting with GoBot)
+if [[ -d "/Applications/Telegram.app" ]] || [[ -d "/Applications/Telegram Desktop.app" ]]; then
+    success "Telegram already installed"
+    add_skipped "Telegram Desktop"
+else
+    step "Installing Telegram Desktop (needed for GoBot interaction)..."
+    brew install --cask telegram 2>/dev/null && {
+        success "Telegram Desktop installed"
+        add_installed "Telegram Desktop"
+    } || add_manual "Install Telegram Desktop from https://desktop.telegram.org"
+fi
+
+# Arc Browser (modern browser with spaces, profiles, AI features)
+if [[ -d "/Applications/Arc.app" ]]; then
+    success "Arc Browser already installed"
+    add_skipped "Arc Browser"
+else
+    step "Installing Arc Browser (modern browser with built-in AI)..."
+    brew install --cask arc 2>/dev/null && {
+        success "Arc Browser installed"
+        add_installed "Arc Browser"
+    } || add_skipped "Arc Browser (install failed, optional)"
+fi
+
+# Notion (project management — integrates with GoBot briefings)
+if [[ -d "/Applications/Notion.app" ]]; then
+    success "Notion already installed"
+    add_skipped "Notion"
+else
+    step "Installing Notion (integrates with GoBot morning briefings)..."
+    brew install --cask notion 2>/dev/null && {
+        success "Notion installed"
+        add_installed "Notion"
+    } || add_skipped "Notion (install failed, optional)"
+fi
+
+echo ""
+echo -e "   ${BOLD}Security & Utilities${NC}"
+echo ""
+
+# 1Password (password manager)
+if [[ -d "/Applications/1Password.app" ]] || [[ -d "/Applications/1Password 7.app" ]]; then
+    success "1Password already installed"
+    add_skipped "1Password"
+else
+    step "Installing 1Password (password manager — store API keys securely)..."
+    brew install --cask 1password 2>/dev/null && {
+        success "1Password installed"
+        add_installed "1Password"
+    } || add_skipped "1Password (install failed, optional)"
+fi
+
+# The Unarchiver (handle any compressed file format)
+if [[ -d "/Applications/The Unarchiver.app" ]]; then
+    success "The Unarchiver already installed"
+    add_skipped "The Unarchiver"
+else
+    step "Installing The Unarchiver (open any archive format)..."
+    brew install --cask the-unarchiver 2>/dev/null && {
+        success "The Unarchiver installed"
+        add_installed "The Unarchiver"
+    } || add_skipped "The Unarchiver (install failed, optional)"
+fi
+
+# AppCleaner (clean uninstall of apps)
+if [[ -d "/Applications/AppCleaner.app" ]]; then
+    success "AppCleaner already installed"
+    add_skipped "AppCleaner"
+else
+    step "Installing AppCleaner (cleanly uninstall apps and their leftovers)..."
+    brew install --cask appcleaner 2>/dev/null && {
+        success "AppCleaner installed"
+        add_installed "AppCleaner"
+    } || add_skipped "AppCleaner (install failed, optional)"
+fi
+
 # ── 10. macOS Performance & Power Settings ──────────────────────────
 header "Step 10/11: macOS Performance & Power Settings"
 
 echo ""
-echo "   Configuring this Mac for optimal LLM performance..."
+echo -e "   ${BOLD}Power Management (Always-On Server Mode)${NC}"
 echo ""
 
 # Prevent sleep when display is off (important for remote access + LLM serving)
@@ -540,20 +775,136 @@ sudo pmset -a autorestart 1 2>/dev/null && success "Auto-restart after power fai
 # Set high performance mode if available (Mac Studio with M1/M2/M4 Ultra)
 sudo pmset -a highpowermode 1 2>/dev/null && success "High Performance mode enabled" || info "High Performance mode not available on this Mac"
 
+echo ""
+echo -e "   ${BOLD}Performance Optimizations${NC}"
+echo ""
+
 # Reduce motion/transparency for better system performance
-defaults write com.apple.universalaccess reduceMotion -bool true 2>/dev/null && info "Reduced motion enabled" || true
+defaults write com.apple.universalaccess reduceMotion -bool true 2>/dev/null && info "Reduced motion enabled (saves GPU cycles for LLMs)" || true
 defaults write com.apple.universalaccess reduceTransparency -bool true 2>/dev/null && info "Reduced transparency enabled" || true
 
+# Disable Spotlight indexing for common LLM model directories (saves CPU)
+step "Excluding model directories from Spotlight indexing..."
+OLLAMA_MODELS_DIR="$HOME/.ollama/models"
+if [[ -d "$OLLAMA_MODELS_DIR" ]]; then
+    sudo mdutil -i off "$OLLAMA_MODELS_DIR" 2>/dev/null && info "Spotlight disabled for Ollama models dir" || true
+fi
+# Also exclude common LM Studio model path
+LMSTUDIO_MODELS_DIR="$HOME/.cache/lm-studio"
+if [[ -d "$LMSTUDIO_MODELS_DIR" ]]; then
+    sudo mdutil -i off "$LMSTUDIO_MODELS_DIR" 2>/dev/null && info "Spotlight disabled for LM Studio models dir" || true
+fi
+
+echo ""
+echo -e "   ${BOLD}Finder & File Management${NC}"
+echo ""
+
 # Show all file extensions
-defaults write NSGlobalDomain AppleShowAllExtensions -bool true 2>/dev/null || true
+defaults write NSGlobalDomain AppleShowAllExtensions -bool true 2>/dev/null && info "Show all file extensions" || true
 
 # Show hidden files in Finder
-defaults write com.apple.finder AppleShowAllFiles -bool true 2>/dev/null || true
+defaults write com.apple.finder AppleShowAllFiles -bool true 2>/dev/null && info "Show hidden files in Finder" || true
 
 # Show path bar in Finder
-defaults write com.apple.finder ShowPathbar -bool true 2>/dev/null || true
+defaults write com.apple.finder ShowPathbar -bool true 2>/dev/null && info "Show path bar in Finder" || true
 
-add_installed "macOS performance tuning"
+# Show status bar in Finder
+defaults write com.apple.finder ShowStatusBar -bool true 2>/dev/null && info "Show status bar in Finder" || true
+
+# Default to list view in Finder (more productive)
+defaults write com.apple.finder FXPreferredViewStyle -string "Nlsv" 2>/dev/null && info "Default to list view in Finder" || true
+
+# Keep folders on top when sorting by name
+defaults write com.apple.finder _FXSortFoldersFirst -bool true 2>/dev/null && info "Folders sorted first in Finder" || true
+
+# Disable the warning when changing file extensions
+defaults write com.apple.finder FXEnableExtensionChangeWarning -bool false 2>/dev/null || true
+
+# Avoid creating .DS_Store files on network or USB volumes
+defaults write com.apple.desktopservices DSDontWriteNetworkStores -bool true 2>/dev/null && info "Disabled .DS_Store on network volumes" || true
+defaults write com.apple.desktopservices DSDontWriteUSBStores -bool true 2>/dev/null && info "Disabled .DS_Store on USB volumes" || true
+
+echo ""
+echo -e "   ${BOLD}Dock & Desktop${NC}"
+echo ""
+
+# Auto-hide the Dock (more screen space, especially useful with remote access)
+defaults write com.apple.dock autohide -bool true 2>/dev/null && info "Dock auto-hide enabled (more screen space)" || true
+
+# Make Dock auto-hide animation faster
+defaults write com.apple.dock autohide-delay -float 0 2>/dev/null || true
+defaults write com.apple.dock autohide-time-modifier -float 0.3 2>/dev/null || true
+
+# Minimize windows to their application icon
+defaults write com.apple.dock minimize-to-application -bool true 2>/dev/null || true
+
+# Don't show recent applications in Dock
+defaults write com.apple.dock show-recents -bool false 2>/dev/null && info "Hidden recent apps from Dock" || true
+
+echo ""
+echo -e "   ${BOLD}Keyboard & Input${NC}"
+echo ""
+
+# Faster key repeat rate (essential for terminal/coding productivity)
+defaults write NSGlobalDomain KeyRepeat -int 2 2>/dev/null && info "Fast key repeat rate" || true
+defaults write NSGlobalDomain InitialKeyRepeat -int 15 2>/dev/null && info "Short key repeat delay" || true
+
+# Disable auto-correct (annoying for coding/terminal)
+defaults write NSGlobalDomain NSAutomaticSpellingCorrectionEnabled -bool false 2>/dev/null && info "Auto-correct disabled" || true
+
+# Disable smart quotes and dashes (break code when pasting)
+defaults write NSGlobalDomain NSAutomaticQuoteSubstitutionEnabled -bool false 2>/dev/null && info "Smart quotes disabled" || true
+defaults write NSGlobalDomain NSAutomaticDashSubstitutionEnabled -bool false 2>/dev/null && info "Smart dashes disabled" || true
+
+# Enable full keyboard access for all controls (Tab through dialogs)
+defaults write NSGlobalDomain AppleKeyboardUIMode -int 3 2>/dev/null && info "Full keyboard access enabled" || true
+
+echo ""
+echo -e "   ${BOLD}Screenshots${NC}"
+echo ""
+
+# Save screenshots to ~/Screenshots instead of Desktop
+SCREENSHOTS_DIR="$HOME/Screenshots"
+mkdir -p "$SCREENSHOTS_DIR"
+defaults write com.apple.screencapture location -string "$SCREENSHOTS_DIR" 2>/dev/null && info "Screenshots save to ~/Screenshots" || true
+
+# Save screenshots as PNG (lossless)
+defaults write com.apple.screencapture type -string "png" 2>/dev/null || true
+
+# Disable screenshot shadow
+defaults write com.apple.screencapture disable-shadow -bool true 2>/dev/null && info "Screenshot shadow disabled" || true
+
+echo ""
+echo -e "   ${BOLD}Security${NC}"
+echo ""
+
+# Enable firewall
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate on 2>/dev/null && info "Firewall enabled" || true
+
+# Enable stealth mode (don't respond to pings from unknown sources)
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setstealthmode on 2>/dev/null && info "Stealth mode enabled" || true
+
+# Require password immediately after sleep/screensaver
+defaults write com.apple.screensaver askForPassword -int 1 2>/dev/null || true
+defaults write com.apple.screensaver askForPasswordDelay -int 0 2>/dev/null && info "Password required immediately after lock" || true
+
+echo ""
+echo -e "   ${BOLD}Safari & Web (if using Safari)${NC}"
+echo ""
+
+# Show full URL in Safari address bar
+defaults write com.apple.Safari ShowFullURLInSmartSearchField -bool true 2>/dev/null || true
+
+# Enable Safari develop menu
+defaults write com.apple.Safari IncludeDevelopMenu -bool true 2>/dev/null && info "Safari Developer menu enabled" || true
+
+# Apply Finder & Dock changes
+step "Applying Dock and Finder changes..."
+killall Dock 2>/dev/null || true
+killall Finder 2>/dev/null || true
+success "Dock and Finder refreshed"
+
+add_installed "macOS performance tuning + productivity settings"
 
 # ── 11. GoBot Setup ─────────────────────────────────────────────────
 header "Step 11/11: GoBot Setup"
@@ -604,20 +955,16 @@ if [[ -d "$GOBOT_DIR" ]]; then
     fi
 
     # Set Ollama as the fallback model
+    # GoBot default is "qwen3-coder" (see src/lib/fallback-llm.ts line 17)
     if [[ -f "$GOBOT_DIR/.env" ]]; then
         # Add Ollama config if not already set
         if ! grep -q "OLLAMA_MODEL" "$GOBOT_DIR/.env"; then
             echo "" >> "$GOBOT_DIR/.env"
             echo "# Local LLM Fallback (Ollama)" >> "$GOBOT_DIR/.env"
-            if [[ $RAM_GB -ge 64 ]]; then
-                echo "OLLAMA_MODEL=qwen3:32b" >> "$GOBOT_DIR/.env"
-            elif [[ $RAM_GB -ge 32 ]]; then
-                echo "OLLAMA_MODEL=qwen3:8b" >> "$GOBOT_DIR/.env"
-            else
-                echo "OLLAMA_MODEL=llama3.2:3b" >> "$GOBOT_DIR/.env"
-            fi
+            echo "# qwen3-coder is GoBot's default fallback — optimized for coding tasks" >> "$GOBOT_DIR/.env"
+            echo "OLLAMA_MODEL=qwen3-coder" >> "$GOBOT_DIR/.env"
             echo "FALLBACK_OFFLINE_ONLY=false" >> "$GOBOT_DIR/.env"
-            success "Ollama fallback configured in .env"
+            success "Ollama fallback configured in .env (model: qwen3-coder)"
         fi
     fi
 
@@ -670,11 +1017,19 @@ if command -v tailscale &>/dev/null; then
 fi
 echo ""
 echo -e "${BOLD}Ollama (Local LLMs):${NC}"
-echo "  Status:        curl http://localhost:11434/api/tags | jq"
-echo "  Chat:          ollama run llama3.2:3b"
+echo "  GoBot model:   qwen3-coder (auto-used as fallback)"
+echo "  Chat:          ollama run qwen3-coder"
+echo "  Quick chat:    ollama run llama3.2:3b"
 echo "  List models:   ollama list"
 echo "  Pull model:    ollama pull <model-name>"
 echo "  API endpoint:  http://localhost:11434"
+echo ""
+echo -e "${BOLD}Open WebUI (ChatGPT-like interface for local models):${NC}"
+echo "  Access at:     http://localhost:3080"
+echo "  Also from LAN: http://$LOCAL_IP:3080"
+if command -v tailscale &>/dev/null; then
+    echo "  Via Tailscale: http://$TS_IP:3080"
+fi
 echo ""
 echo -e "${BOLD}LM Studio:${NC}"
 echo "  Open the app for a GUI to download and chat with models"
@@ -686,18 +1041,37 @@ echo "  Start bot:     cd ~/go-bot && bun run start"
 echo "  Setup guide:   ~/go-bot/docs/setup-guide.md"
 echo "  Health check:  cd ~/go-bot && bun run setup:verify"
 echo ""
+echo -e "${BOLD}Keyboard Shortcuts (installed apps):${NC}"
+echo "  Ctrl+Opt+Arrow    Rectangle: snap window to half/quarter screen"
+echo "  Cmd+Space          Raycast: spotlight replacement (or Spotlight)"
+echo "  Cmd+\`              Switch windows within same app"
+echo ""
+echo -e "${BOLD}Useful tmux commands (persistent SSH sessions):${NC}"
+echo "  tmux new -s work   Start a named session"
+echo "  tmux attach        Reattach to last session"
+echo "  Ctrl+B, D          Detach from session (keeps running)"
+echo "  Ctrl+B, C          New window inside session"
+echo ""
 echo -e "${BOLD}━━━ Next Steps for Andrew ━━━${NC}"
 echo ""
 echo "  1. Open Tailscale app → Sign in → Approve this device"
 echo "  2. Install Tailscale on your laptop/phone for remote access"
-echo "  3. Edit ~/go-bot/.env with your API keys"
+echo "  3. Open Telegram Desktop → Sign in with your account"
+echo "  4. Edit ~/go-bot/.env with your API keys:"
 echo "     - TELEGRAM_BOT_TOKEN (from @BotFather on Telegram)"
 echo "     - TELEGRAM_USER_ID (from @userinfobot on Telegram)"
 echo "     - ANTHROPIC_API_KEY (from console.anthropic.com)"
 echo "     - SUPABASE_URL + SUPABASE_ANON_KEY (from supabase.com)"
-echo "  4. Run: cd ~/go-bot && bun run setup:verify"
-echo "  5. Start the bot: bun run start"
-echo "  6. For always-on mode: bun run setup:launchd"
+echo "  5. Run: cd ~/go-bot && bun run setup:verify"
+echo "  6. Start the bot: bun run start"
+echo "  7. For always-on mode: bun run setup:launchd"
+echo "  8. Visit http://localhost:3080 to chat with local models via Open WebUI"
+echo ""
+echo -e "${BOLD}Pro Tips:${NC}"
+echo "  - Use 'tmux' when SSHing in so sessions survive disconnects"
+echo "  - Use Stats menu bar app to watch memory when running large models"
+echo "  - Open WebUI at :3080 lets you chat with ALL your Ollama models"
+echo "  - GoBot auto-falls back to local Ollama when Claude is unavailable"
 echo ""
 echo -e "${GREEN}${BOLD}Your Mac Studio is ready to rock and roll! 🤘${NC}"
 echo ""
