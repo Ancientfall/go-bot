@@ -22,7 +22,7 @@
 #   8. Enables macOS Remote Access (SSH + Screen Sharing)
 #   9. Installs Tailscale VPN (remote access from anywhere)
 #  10. Installs productivity apps (Docker, Open WebUI, Telegram, VS Code,
-#      iTerm2, Rectangle, Stats, Raycast, Arc, Notion, 1Password, etc.)
+#      iTerm2, Rectangle, Stats, Raycast, Notion, etc.)
 #  11. Configures macOS for always-on server mode (power, performance,
 #      Dock, Finder, keyboard, screenshots, security, firewall)
 #  12. Clones and sets up GoBot with Ollama fallback pre-configured
@@ -30,7 +30,9 @@
 # Tested on: macOS Ventura 14+, Apple Silicon (M1/M2/M4 Ultra)
 # ─────────────────────────────────────────────────────────────────────
 
-set -euo pipefail
+# IMPORTANT: Do NOT use `set -e` — many commands legitimately return non-zero
+# (brew installs, defaults writes, sudo commands). We handle errors explicitly.
+set -uo pipefail
 
 # ── Colors & helpers ────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -52,10 +54,79 @@ step()    { echo -e "${BOLD}→${NC} $*"; }
 INSTALLED_ITEMS=()
 SKIPPED_ITEMS=()
 MANUAL_STEPS=()
+FAILED_ITEMS=()
 
 add_installed() { INSTALLED_ITEMS+=("$1"); }
 add_skipped()   { SKIPPED_ITEMS+=("$1"); }
 add_manual()    { MANUAL_STEPS+=("$1"); }
+add_failed()    { FAILED_ITEMS+=("$1"); warn "$1 — will continue with remaining steps"; }
+
+# ── Progress tracking (resume support) ─────────────────────────────
+PROGRESS_FILE="$HOME/.mac-studio-setup-progress"
+
+mark_done() {
+    echo "$1" >> "$PROGRESS_FILE"
+}
+
+is_done() {
+    [[ -f "$PROGRESS_FILE" ]] && grep -qF "$1" "$PROGRESS_FILE" 2>/dev/null
+}
+
+# ── Cleanup on exit ────────────────────────────────────────────────
+SUDO_KEEPALIVE_PID=""
+
+cleanup() {
+    if [[ -n "$SUDO_KEEPALIVE_PID" ]] && kill -0 "$SUDO_KEEPALIVE_PID" 2>/dev/null; then
+        kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
+
+# ── sudo keepalive (prevents password timeout during long model downloads) ──
+start_sudo_keepalive() {
+    # Ask for password once upfront, then keep the sudo timestamp alive
+    sudo -v 2>/dev/null || true
+    while true; do
+        sudo -n true 2>/dev/null
+        sleep 50
+    done &
+    SUDO_KEEPALIVE_PID=$!
+}
+
+# ── Safe brew install helper ───────────────────────────────────────
+brew_install() {
+    local pkg="$1"
+    local label="${2:-$1}"
+    if brew install "$pkg" 2>/dev/null; then
+        success "$label installed"
+        add_installed "$label"
+    else
+        add_failed "Failed to install $label"
+    fi
+}
+
+brew_cask_install() {
+    local pkg="$1"
+    local label="${2:-$1}"
+    if brew install --cask "$pkg" 2>/dev/null; then
+        success "$label installed"
+        add_installed "$label"
+    else
+        add_failed "Failed to install $label (cask)"
+    fi
+}
+
+# ── Network connectivity check ─────────────────────────────────────
+check_network() {
+    if ! curl -sfm 5 "https://formulae.brew.sh" >/dev/null 2>&1; then
+        if ! curl -sfm 5 "https://github.com" >/dev/null 2>&1; then
+            error "No internet connection detected!"
+            error "This script requires internet to download packages and models."
+            error "Please connect to the internet and try again."
+            exit 1
+        fi
+    fi
+}
 
 # ── Pre-flight checks ──────────────────────────────────────────────
 header "Pre-flight Checks"
@@ -87,11 +158,30 @@ if [[ $RAM_GB -lt 16 ]]; then
     warn "Recommended: 64 GB+ for running 70B+ models."
 fi
 
+# Check network
+step "Checking internet connection..."
+check_network
+success "Internet connection OK"
+
+if [[ -f "$PROGRESS_FILE" ]]; then
+    echo ""
+    info "Previous setup progress detected. Already-completed steps will be skipped."
+    info "To start fresh, delete $PROGRESS_FILE"
+fi
+
 echo ""
 echo -e "${BOLD}This script will install development tools, LLM software,${NC}"
 echo -e "${BOLD}and configure your Mac Studio for remote access + GoBot.${NC}"
 echo ""
+echo -e "${BOLD}If the script is interrupted, just run it again — it picks up${NC}"
+echo -e "${BOLD}where it left off and skips already-completed steps.${NC}"
+echo ""
 read -rp "Press Enter to continue (or Ctrl+C to abort)... "
+
+# Start sudo keepalive so password doesn't expire during long model downloads
+echo ""
+step "We'll need your password for system settings. You'll only be asked once."
+start_sudo_keepalive
 
 # ── 1. Xcode Command Line Tools ────────────────────────────────────
 header "Step 1/11: Xcode Command Line Tools"
@@ -99,6 +189,9 @@ header "Step 1/11: Xcode Command Line Tools"
 if xcode-select -p &>/dev/null; then
     success "Xcode Command Line Tools already installed"
     add_skipped "Xcode CLI Tools (already installed)"
+elif is_done "xcode"; then
+    success "Xcode CLI Tools (completed in previous run)"
+    add_skipped "Xcode CLI Tools"
 else
     step "Installing Xcode Command Line Tools..."
     xcode-select --install 2>/dev/null || true
@@ -109,8 +202,10 @@ else
     if xcode-select -p &>/dev/null; then
         success "Xcode Command Line Tools installed"
         add_installed "Xcode CLI Tools"
+        mark_done "xcode"
     else
-        error "Xcode CLI Tools installation may have failed. Continuing anyway..."
+        warn "Xcode CLI Tools installation may have failed. Continuing anyway..."
+        add_failed "Xcode CLI Tools may not have installed"
     fi
 fi
 
@@ -120,7 +215,7 @@ header "Step 2/11: Homebrew Package Manager"
 if command -v brew &>/dev/null; then
     success "Homebrew already installed at $(which brew)"
     step "Updating Homebrew..."
-    brew update --quiet
+    brew update --quiet 2>/dev/null || warn "brew update failed (network issue?) — continuing with existing version"
     add_skipped "Homebrew (already installed)"
 else
     step "Installing Homebrew..."
@@ -161,44 +256,53 @@ if command -v git &>/dev/null; then
     add_skipped "Git"
 else
     step "Installing Git..."
-    brew install git
-    success "Git installed"
-    add_installed "Git"
+    brew_install git "Git"
 fi
 
 # Bun (required for GoBot)
 if command -v bun &>/dev/null; then
-    success "Bun already installed: $(bun --version)"
+    success "Bun already installed: $(bun --version 2>/dev/null || echo 'version unknown')"
     add_skipped "Bun"
 else
     step "Installing Bun (TypeScript runtime for GoBot)..."
-    curl -fsSL https://bun.sh/install | bash
-    export BUN_INSTALL="$HOME/.bun"
-    export PATH="$BUN_INSTALL/bin:$PATH"
-    success "Bun installed: $(bun --version)"
-    add_installed "Bun"
+    if curl -fsSL https://bun.sh/install | bash 2>/dev/null; then
+        export BUN_INSTALL="$HOME/.bun"
+        export PATH="$BUN_INSTALL/bin:$PATH"
+        if command -v bun &>/dev/null; then
+            success "Bun installed: $(bun --version 2>/dev/null)"
+            add_installed "Bun"
+        else
+            # Bun installed but not in PATH yet — add it
+            if [[ -f "$HOME/.bun/bin/bun" ]]; then
+                export PATH="$HOME/.bun/bin:$PATH"
+                success "Bun installed (added to PATH for this session)"
+                add_installed "Bun"
+            else
+                add_failed "Bun install completed but binary not found"
+            fi
+        fi
+    else
+        add_failed "Bun installation failed"
+        add_manual "Install Bun manually: curl -fsSL https://bun.sh/install | bash"
+    fi
 fi
 
 # Node.js (useful for various tools)
 if command -v node &>/dev/null; then
-    success "Node.js already installed: $(node --version)"
+    success "Node.js already installed: $(node --version 2>/dev/null)"
     add_skipped "Node.js"
 else
     step "Installing Node.js..."
-    brew install node
-    success "Node.js installed: $(node --version)"
-    add_installed "Node.js"
+    brew_install node "Node.js"
 fi
 
 # Python 3 (useful for ML/AI tools)
 if command -v python3 &>/dev/null; then
-    success "Python 3 already installed: $(python3 --version)"
+    success "Python 3 already installed: $(python3 --version 2>/dev/null)"
     add_skipped "Python 3"
 else
     step "Installing Python 3..."
-    brew install python@3
-    success "Python 3 installed"
-    add_installed "Python 3"
+    brew_install "python@3" "Python 3"
 fi
 
 # jq (JSON processing — useful for configs)
@@ -207,9 +311,7 @@ if command -v jq &>/dev/null; then
     add_skipped "jq"
 else
     step "Installing jq..."
-    brew install jq
-    success "jq installed"
-    add_installed "jq"
+    brew_install jq "jq"
 fi
 
 # htop (process monitoring)
@@ -218,9 +320,7 @@ if command -v htop &>/dev/null; then
     add_skipped "htop"
 else
     step "Installing htop..."
-    brew install htop
-    success "htop installed"
-    add_installed "htop"
+    brew_install htop "htop"
 fi
 
 # wget (file downloader — useful for fetching models, configs)
@@ -229,9 +329,7 @@ if command -v wget &>/dev/null; then
     add_skipped "wget"
 else
     step "Installing wget..."
-    brew install wget
-    success "wget installed"
-    add_installed "wget"
+    brew_install wget "wget"
 fi
 
 # tree (directory visualization)
@@ -240,9 +338,7 @@ if command -v tree &>/dev/null; then
     add_skipped "tree"
 else
     step "Installing tree..."
-    brew install tree
-    success "tree installed"
-    add_installed "tree"
+    brew_install tree "tree"
 fi
 
 # gh (GitHub CLI — manage repos, PRs, issues from terminal)
@@ -251,9 +347,7 @@ if command -v gh &>/dev/null; then
     add_skipped "GitHub CLI (gh)"
 else
     step "Installing GitHub CLI..."
-    brew install gh
-    success "GitHub CLI installed"
-    add_installed "GitHub CLI (gh)"
+    brew_install gh "GitHub CLI (gh)"
 fi
 
 # ffmpeg (media processing — useful for voice/transcription features)
@@ -262,9 +356,7 @@ if command -v ffmpeg &>/dev/null; then
     add_skipped "ffmpeg"
 else
     step "Installing ffmpeg (audio/video processing for voice features)..."
-    brew install ffmpeg
-    success "ffmpeg installed"
-    add_installed "ffmpeg"
+    brew_install ffmpeg "ffmpeg"
 fi
 
 # ── 4. Claude Code CLI ─────────────────────────────────────────────
@@ -276,9 +368,13 @@ if command -v claude &>/dev/null; then
 else
     step "Installing Claude Code CLI..."
     if command -v npm &>/dev/null; then
-        npm install -g @anthropic-ai/claude-code
-        success "Claude Code CLI installed"
-        add_installed "Claude Code CLI"
+        if npm install -g @anthropic-ai/claude-code 2>/dev/null; then
+            success "Claude Code CLI installed"
+            add_installed "Claude Code CLI"
+        else
+            add_failed "Claude Code CLI npm install failed"
+            add_manual "Install Claude Code CLI: npm install -g @anthropic-ai/claude-code"
+        fi
     else
         warn "npm not available. Install Claude Code CLI manually:"
         warn "  npm install -g @anthropic-ai/claude-code"
@@ -294,9 +390,7 @@ if command -v ollama &>/dev/null; then
     add_skipped "Ollama"
 else
     step "Installing Ollama..."
-    brew install ollama
-    success "Ollama installed"
-    add_installed "Ollama"
+    brew_install ollama "Ollama"
 fi
 
 # Start Ollama service
@@ -384,13 +478,23 @@ read -rp "Pull these models now? This may take a while depending on your connect
 PULL_MODELS=${PULL_MODELS:-Y}
 
 if [[ "$PULL_MODELS" =~ ^[Yy]$ ]]; then
+    TOTAL_MODELS=${#MODELS_TO_PULL[@]}
+    CURRENT_MODEL=0
     for model in "${MODELS_TO_PULL[@]}"; do
-        step "Pulling $model ..."
-        if ollama pull "$model" 2>&1; then
+        CURRENT_MODEL=$((CURRENT_MODEL + 1))
+        if is_done "model:$model"; then
+            success "[$CURRENT_MODEL/$TOTAL_MODELS] $model (already pulled)"
+            add_skipped "Ollama model: $model"
+            continue
+        fi
+        step "[$CURRENT_MODEL/$TOTAL_MODELS] Pulling $model ..."
+        if ollama pull "$model"; then
             success "Pulled $model"
             add_installed "Ollama model: $model"
+            mark_done "model:$model"
         else
             warn "Failed to pull $model — you can pull it later with: ollama pull $model"
+            add_manual "Pull model: ollama pull $model"
         fi
     done
 else
@@ -450,7 +554,8 @@ fi
 
 # Enable Screen Sharing (VNC)
 step "Checking Screen Sharing..."
-SCREEN_SHARING=$(sudo launchctl list 2>/dev/null | grep -c "com.apple.screensharing" || echo "0")
+SCREEN_SHARING="$(sudo launchctl list 2>/dev/null | grep "com.apple.screensharing" | wc -l | tr -d ' ')"
+SCREEN_SHARING="${SCREEN_SHARING:-0}"
 if [[ "$SCREEN_SHARING" -gt 0 ]]; then
     success "Screen Sharing appears to be enabled"
     add_skipped "Screen Sharing"
@@ -573,38 +678,45 @@ echo -e "   ${BOLD}AI & LLM Tools${NC}"
 echo ""
 
 # Open WebUI (beautiful web chat interface for Ollama — like ChatGPT but local)
+OPEN_WEBUI_CMD="docker run -d --name open-webui -p 3080:8080 --add-host=host.docker.internal:host-gateway -e OLLAMA_BASE_URL=http://host.docker.internal:11434 -v open-webui:/app/backend/data --restart always ghcr.io/open-webui/open-webui:main"
+
 step "Checking for Open WebUI (ChatGPT-like interface for local models)..."
-if command -v docker &>/dev/null || [[ -d "/Applications/Docker.app" ]]; then
-    WEBUI_RUNNING=$(docker ps 2>/dev/null | grep -c "open-webui" || echo "0")
-    if [[ "$WEBUI_RUNNING" -gt 0 ]]; then
-        success "Open WebUI already running"
-        add_skipped "Open WebUI"
-    else
-        echo ""
-        echo "   Open WebUI gives you a ChatGPT-like web interface for all your local models."
-        echo "   Access it at http://localhost:3080 from any device on your network."
-        echo ""
-        read -rp "   Install Open WebUI? (requires Docker) [Y/n] " INSTALL_WEBUI
-        INSTALL_WEBUI=${INSTALL_WEBUI:-Y}
-        if [[ "$INSTALL_WEBUI" =~ ^[Yy]$ ]]; then
-            docker run -d --name open-webui \
-                -p 3080:8080 \
-                --add-host=host.docker.internal:host-gateway \
-                -e OLLAMA_BASE_URL=http://host.docker.internal:11434 \
-                -v open-webui:/app/backend/data \
-                --restart always \
-                ghcr.io/open-webui/open-webui:main 2>/dev/null && {
-                success "Open WebUI installed — access at http://localhost:3080"
-                add_installed "Open WebUI (http://localhost:3080)"
-            } || {
-                warn "Docker may need to be started first. Open Docker Desktop, then retry."
-                add_manual "Start Docker Desktop, then run: docker run -d --name open-webui -p 3080:8080 --add-host=host.docker.internal:host-gateway -e OLLAMA_BASE_URL=http://host.docker.internal:11434 -v open-webui:/app/backend/data --restart always ghcr.io/open-webui/open-webui:main"
-            }
+if command -v docker &>/dev/null; then
+    # Docker CLI exists — check if daemon is running
+    if docker info &>/dev/null; then
+        WEBUI_RUNNING="$(docker ps 2>/dev/null | grep "open-webui" | wc -l | tr -d ' ')"
+        if [[ "${WEBUI_RUNNING:-0}" -gt 0 ]]; then
+            success "Open WebUI already running"
+            add_skipped "Open WebUI"
+        else
+            echo ""
+            echo "   Open WebUI gives you a ChatGPT-like web interface for all your local models."
+            echo "   Access it at http://localhost:3080 from any device on your network."
+            echo ""
+            read -rp "   Install Open WebUI? (requires Docker) [Y/n] " INSTALL_WEBUI
+            INSTALL_WEBUI=${INSTALL_WEBUI:-Y}
+            if [[ "$INSTALL_WEBUI" =~ ^[Yy]$ ]]; then
+                if $OPEN_WEBUI_CMD 2>/dev/null; then
+                    success "Open WebUI installed — access at http://localhost:3080"
+                    add_installed "Open WebUI (http://localhost:3080)"
+                else
+                    warn "Failed to start Open WebUI container."
+                    add_manual "Run Open WebUI: $OPEN_WEBUI_CMD"
+                fi
+            fi
         fi
+    else
+        # Docker CLI exists but daemon not running (Docker Desktop needs to be opened)
+        warn "Docker is installed but not running. Open Docker Desktop first."
+        add_manual "Open Docker Desktop, wait for it to start, then run: $OPEN_WEBUI_CMD"
     fi
+elif [[ -d "/Applications/Docker.app" ]]; then
+    # Docker Desktop installed but CLI not in PATH yet (fresh install)
+    warn "Docker Desktop was just installed — it needs to be opened once to finish setup."
+    add_manual "Open Docker Desktop, complete its setup, then run: $OPEN_WEBUI_CMD"
 else
     info "Open WebUI requires Docker. Install Docker first, then run the setup again."
-    add_manual "After Docker is installed: docker run -d --name open-webui -p 3080:8080 --add-host=host.docker.internal:host-gateway -e OLLAMA_BASE_URL=http://host.docker.internal:11434 -v open-webui:/app/backend/data --restart always ghcr.io/open-webui/open-webui:main"
+    add_manual "Install Docker Desktop, then run: $OPEN_WEBUI_CMD"
 fi
 
 echo ""
@@ -962,6 +1074,16 @@ if [[ ${#SKIPPED_ITEMS[@]} -gt 0 ]]; then
     echo ""
 fi
 
+if [[ ${#FAILED_ITEMS[@]} -gt 0 ]]; then
+    echo -e "${RED}${BOLD}Failed (non-critical, script continued):${NC}"
+    for item in "${FAILED_ITEMS[@]}"; do
+        echo -e "  ${RED}✘${NC} $item"
+    done
+    echo ""
+    echo -e "  ${YELLOW}Tip:${NC} Re-run this script to retry failed items: ./setup/mac-studio-setup.sh"
+    echo ""
+fi
+
 if [[ ${#MANUAL_STEPS[@]} -gt 0 ]]; then
     echo -e "${YELLOW}${BOLD}Manual Steps Required:${NC}"
     for i in "${!MANUAL_STEPS[@]}"; do
@@ -993,7 +1115,7 @@ echo -e "${BOLD}Open WebUI (ChatGPT-like interface for local models):${NC}"
 echo "  Access at:     http://localhost:3080"
 echo "  Also from LAN: http://$LOCAL_IP:3080"
 if command -v tailscale &>/dev/null; then
-    echo "  Via Tailscale: http://$TS_IP:3080"
+    echo "  Via Tailscale: http://${TS_IP:-<tailscale-ip>}:3080"
 fi
 echo ""
 echo -e "${BOLD}LM Studio:${NC}"
@@ -1033,3 +1155,12 @@ echo "  - GoBot auto-falls back to local Ollama when Claude is unavailable"
 echo ""
 echo -e "${GREEN}${BOLD}Your Mac Studio is ready to rock and roll! 🤘${NC}"
 echo ""
+
+# Clean up progress file on successful completion
+if [[ ${#FAILED_ITEMS[@]} -eq 0 ]]; then
+    rm -f "$PROGRESS_FILE"
+    info "Setup completed successfully — progress file cleaned up."
+else
+    info "Some items failed. Re-run this script to retry: ./setup/mac-studio-setup.sh"
+    info "Progress saved to $PROGRESS_FILE (completed steps will be skipped)."
+fi
