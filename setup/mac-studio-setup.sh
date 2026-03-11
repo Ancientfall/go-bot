@@ -25,7 +25,7 @@
 #      iTerm2, Rectangle, Stats, Raycast, Notion, etc.)
 #  11. Configures macOS for always-on server mode (power, performance,
 #      Dock, Finder, keyboard, screenshots, security, firewall)
-#  12. Clones and sets up GoBot with Ollama fallback pre-configured
+#  12. Sets up GoBot (copied from your laptop) with Ollama fallback pre-configured
 #
 # Tested on: macOS Ventura 14+, Apple Silicon (M1/M2/M4 Ultra)
 # ─────────────────────────────────────────────────────────────────────
@@ -987,21 +987,64 @@ add_installed "macOS performance tuning + productivity settings"
 header "Step 11/11: GoBot Setup"
 
 GOBOT_DIR="$HOME/go-bot"
+GOBOT_REPO="https://github.com/Ancientfall/go-bot.git"
 
 if [[ -d "$GOBOT_DIR" ]]; then
     success "GoBot directory already exists at $GOBOT_DIR"
     cd "$GOBOT_DIR"
+
+    # Ensure git remote points to the correct repo
+    if git remote get-url origin 2>/dev/null | grep -q "autonomee/gobot"; then
+        step "Updating git remote from autonomee/gobot → Ancientfall/go-bot..."
+        git remote set-url origin "$GOBOT_REPO"
+        success "Git remote updated to $GOBOT_REPO"
+    elif ! git remote get-url origin &>/dev/null; then
+        step "Adding git remote..."
+        git remote add origin "$GOBOT_REPO" 2>/dev/null || git remote set-url origin "$GOBOT_REPO"
+        success "Git remote set to $GOBOT_REPO"
+    fi
+
     step "Pulling latest changes..."
-    git pull origin master 2>/dev/null || git pull 2>/dev/null || warn "Could not pull latest changes"
+    git pull origin master 2>/dev/null || git pull 2>/dev/null || warn "Could not pull latest changes (check GitHub access)"
 else
-    step "Cloning GoBot repository..."
-    git clone https://github.com/autonomee/gobot.git "$GOBOT_DIR" 2>/dev/null && {
-        success "GoBot cloned to $GOBOT_DIR"
+    # GoBot needs to be copied from your laptop first — it's not publicly available
+    echo ""
+    warn "GoBot directory not found at $GOBOT_DIR"
+    echo ""
+    echo -e "  ${BOLD}GoBot needs to be copied from your laptop first.${NC}"
+    echo ""
+    echo "  Option A — AirDrop (easiest):"
+    echo "    1. On your laptop: right-click ~/go-bot → Compress"
+    echo "    2. AirDrop the .zip to this Mac Studio"
+    echo "    3. Double-click to unzip, then move to ~/go-bot"
+    echo ""
+    echo "  Option B — Copy over the network:"
+    echo "    Run this on your LAPTOP (not this Mac):"
+    echo -e "    ${CYAN}scp -r ~/go-bot $(whoami)@${LOCAL_IP}:~/go-bot${NC}"
+    echo ""
+    echo "  Option C — USB drive:"
+    echo "    1. Copy ~/go-bot folder to a USB drive"
+    echo "    2. Plug into this Mac and copy to ~/go-bot"
+    echo ""
+    echo -e "  After copying, re-run this script to continue setup."
+    echo ""
+
+    # Wait for user to copy files, or let them re-run later
+    read -rp "  Have you already copied go-bot to ~/go-bot? (y/n): " GOBOT_COPIED
+    if [[ "$GOBOT_COPIED" =~ ^[Yy] ]] && [[ -d "$GOBOT_DIR" ]]; then
+        success "GoBot found at $GOBOT_DIR"
         cd "$GOBOT_DIR"
-    } || {
-        warn "Could not clone GoBot. You may need to set up GitHub access first."
-        add_manual "Clone GoBot: git clone https://github.com/autonomee/gobot.git ~/go-bot"
-    }
+
+        # Set up the correct git remote
+        if ! git remote get-url origin &>/dev/null; then
+            git remote add origin "$GOBOT_REPO" 2>/dev/null || true
+        fi
+        git remote set-url origin "$GOBOT_REPO" 2>/dev/null || true
+        success "Git remote set to $GOBOT_REPO"
+    else
+        add_manual "Copy GoBot to ~/go-bot from your laptop (see setup guide for instructions)"
+        add_manual "After copying, re-run this script OR manually run: cd ~/go-bot && bun install"
+    fi
 fi
 
 if [[ -d "$GOBOT_DIR" ]]; then
