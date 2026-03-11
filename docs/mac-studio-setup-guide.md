@@ -6,41 +6,18 @@
 
 ---
 
-## Before You Begin — Get GoBot onto the Mac Studio
-
-GoBot isn't available to download publicly — you'll need to copy it from your laptop first. Pick whichever method is easiest:
-
-### Option A: AirDrop (Easiest)
-1. On your **laptop**, right-click the `~/go-bot` folder → **Compress "go-bot"**
-2. AirDrop the `.zip` file to the Mac Studio
-3. On the Mac Studio, double-click the `.zip` to unzip it
-4. Move the folder to your home directory: drag it to `~/go-bot` (or open Terminal and run `mv ~/Downloads/go-bot ~/go-bot`)
-
-### Option B: Copy Over the Network
-Both machines need to be on the same Wi-Fi. On your **laptop**, run:
-```bash
-scp -r ~/go-bot andrew@<mac-studio-ip>:~/go-bot
-```
-*(Replace `<mac-studio-ip>` with the Mac Studio's IP address — find it in System Settings → Wi-Fi → Details → IP Address)*
-
-### Option C: USB Drive
-1. Copy the `~/go-bot` folder onto a USB drive
-2. Plug the USB into the Mac Studio
-3. Copy the folder to `~/go-bot`
-
----
-
 ## Quick Start
 
-Once GoBot is at `~/go-bot`, open **Terminal** (press `Cmd + Space`, type "Terminal", press Enter) and run:
+Open **Terminal** (press `Cmd + Space`, type "Terminal", press Enter) and run:
 
 ```bash
+git clone https://github.com/Ancientfall/go-bot.git ~/go-bot
 cd ~/go-bot
 chmod +x setup/mac-studio-setup.sh
 ./setup/mac-studio-setup.sh
 ```
 
-The script is interactive — it will ask you before making major changes and explain everything along the way. It will also configure GoBot to pull future updates from GitHub automatically.
+The script is interactive — it will ask you before making major changes and explain everything along the way.
 
 ---
 

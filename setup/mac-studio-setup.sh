@@ -25,7 +25,7 @@
 #      iTerm2, Rectangle, Stats, Raycast, Notion, etc.)
 #  11. Configures macOS for always-on server mode (power, performance,
 #      Dock, Finder, keyboard, screenshots, security, firewall)
-#  12. Sets up GoBot (copied from your laptop) with Ollama fallback pre-configured
+#  12. Clones and sets up GoBot with Ollama fallback pre-configured
 #
 # Tested on: macOS Ventura 14+, Apple Silicon (M1/M2/M4 Ultra)
 # ─────────────────────────────────────────────────────────────────────
@@ -1007,44 +1007,14 @@ if [[ -d "$GOBOT_DIR" ]]; then
     step "Pulling latest changes..."
     git pull origin master 2>/dev/null || git pull 2>/dev/null || warn "Could not pull latest changes (check GitHub access)"
 else
-    # GoBot needs to be copied from your laptop first — it's not publicly available
-    echo ""
-    warn "GoBot directory not found at $GOBOT_DIR"
-    echo ""
-    echo -e "  ${BOLD}GoBot needs to be copied from your laptop first.${NC}"
-    echo ""
-    echo "  Option A — AirDrop (easiest):"
-    echo "    1. On your laptop: right-click ~/go-bot → Compress"
-    echo "    2. AirDrop the .zip to this Mac Studio"
-    echo "    3. Double-click to unzip, then move to ~/go-bot"
-    echo ""
-    echo "  Option B — Copy over the network:"
-    echo "    Run this on your LAPTOP (not this Mac):"
-    echo -e "    ${CYAN}scp -r ~/go-bot $(whoami)@${LOCAL_IP}:~/go-bot${NC}"
-    echo ""
-    echo "  Option C — USB drive:"
-    echo "    1. Copy ~/go-bot folder to a USB drive"
-    echo "    2. Plug into this Mac and copy to ~/go-bot"
-    echo ""
-    echo -e "  After copying, re-run this script to continue setup."
-    echo ""
-
-    # Wait for user to copy files, or let them re-run later
-    read -rp "  Have you already copied go-bot to ~/go-bot? (y/n): " GOBOT_COPIED
-    if [[ "$GOBOT_COPIED" =~ ^[Yy] ]] && [[ -d "$GOBOT_DIR" ]]; then
-        success "GoBot found at $GOBOT_DIR"
+    step "Cloning GoBot repository..."
+    git clone "$GOBOT_REPO" "$GOBOT_DIR" && {
+        success "GoBot cloned to $GOBOT_DIR"
         cd "$GOBOT_DIR"
-
-        # Set up the correct git remote
-        if ! git remote get-url origin &>/dev/null; then
-            git remote add origin "$GOBOT_REPO" 2>/dev/null || true
-        fi
-        git remote set-url origin "$GOBOT_REPO" 2>/dev/null || true
-        success "Git remote set to $GOBOT_REPO"
-    else
-        add_manual "Copy GoBot to ~/go-bot from your laptop (see setup guide for instructions)"
-        add_manual "After copying, re-run this script OR manually run: cd ~/go-bot && bun install"
-    fi
+    } || {
+        warn "Could not clone GoBot. Check your internet connection and try again."
+        add_manual "Clone GoBot: git clone $GOBOT_REPO ~/go-bot"
+    }
 fi
 
 if [[ -d "$GOBOT_DIR" ]]; then
